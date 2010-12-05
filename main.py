@@ -1,79 +1,135 @@
 import sys
+import struct
 
 class Machine(object):
-'''Class for actually simulating the machine'''
-    pc = 0
+    '''Class for actually simulating the machine'''
+    pc = 0xC000
     a = s = p = 0
     x = y = 0
     mem = [0]
 
-    flags = { 'N' = 1 << 7,
-              'V' = 1 << 6,
-              'B' = 1 << 4,
-              'D' = 1 << 3,
-              'I' = 1 << 2,
-              'Z' = 1 << 1,
-              'C' = 1 << 0 }
-    def set_flag(flag, val):
-       if val:
+    flags = { 'N': 1 << 7,
+              'V': 1 << 6,
+              'B': 1 << 4,
+              'D': 1 << 3,
+              'I': 1 << 2,
+              'Z': 1 << 1,
+              'C': 1 << 0 }
+    def set_flag(self, flag, val):
+        if val:
             p = p | flags[flag]
         else:
             p = p & (~flags[flag])
-    def get_flag(flag):
+    def get_flag(self, flag):
         return p & flags[flag]
 
+    def get_mem(self, addr):
+        if addr >= 0xC000:
+            return self.rom.prg_rom[addr-0xC000]
+        if addr >= 0x8000:
+            return self.rom.prg_rom[addr-0x8000]
+    def set_mem(self, addr, val):
+        mem[addr] = val
+
+    def __init__(self, rom):
+        self.rom = rom
+
+    def run(self):
+        #self.running = True
+        #while self.running
+        inst = self.next_inst()
+        print inst
+        #self.execute(inst)
+
+    def next_inst(self):
+        op = self.get_mem(self.pc)
+        inst = Instruction(op)
+        self.pc += 1
+        inst.parse_operand('00')
+        self.pc += inst.addr_len
+        return inst
+        
     def execute(self, inst):
         try:
             self.__getattr__(inst.type)(inst)
         except:
             pass
             #should log this
+
     def nop(inst):
         pass
+    def jmp(inst):
+        pc = inst.operand
 
 class Instruction(object):
-'''Class for parsing instructions'''
-    { 0x4D : ('nop','') }
+    '''Class for parsing instructions'''
+    opcodes = { 0x4C : ('jmp','imm') }
     type = 'nop'
     opcode = 0x00 
     addr_mode = '#'
     operand = 0
-    def read(rom):
-        return Instruction(
-    def __init__(op, addr_mode, addr):
-        pass
-    def parse_address(self, rom):
-        if addr_mode == 'imm':
+    def __init__(self, op):
+        self.opcode = op
+        self.op, self.addr_mode = self.opcodes[op]
+        self.addr_len = 4
+    def parse_operand(self, addr):
+        """if addr_mode == 'imm':
             operand = addr
-        else if addr_mode == 'abs':
+        elif addr_mode == 'abs':
             operand = mem[addr]
-        else if addr_mode == 'zp':
+        elif addr_mode == 'zp':
             operand = mem[addr]
-        else if addr_mode == 'imp':
+        elif addr_mode == 'imp':
             operand = None
-        else if addr_mode == 'abs_inx':
+        elif addr_mode == 'abs_inx':
             operand = mem[addr+x]
-        else if addr_mode == 'abs_iny':
+        elif addr_mode == 'abs_iny':
             operand = mem[addr+y]
-        else if addr_mode == 'zpix':
+        elif addr_mode == 'zpix':
             operand = mem[addr+y]
-        else if addr_mode == 'zpiy':
+        elif addr_mode == 'zpiy':
             operand = mem[addr+y]
-        else if addr_mode == 'ixind':
-        else if addr_mode == 'indix':
-        else if addr_mode == 'rel':
+        elif addr_mode == 'ixind':
+            pass
+        elif addr_mode == 'indix':
+            pass
+        elif addr_mode == 'rel':
             operand = pc + addr
-        else if addr_mode == 'acc':
-            operand = a
+        elif addr_mode == 'acc':
+            operand = a"""
+        if self.addr_mode == 'imm':
+            self.operand = addr
         else:
             print 'Error, unrecognized addressing mode'
             sys.exit(1)
-            
+    def __repr__(self):
+        return self.op + ' ' + self.operand
+
+class Rom(object):
+    '''class for reading in iNES files'''
+    def __init__(self, f):
+        self.f = f
+        header = f.read(16)
+        if header[:4] == 'NES\x1a':
+            print 'header constant OK!'
+        else:
+            print 'bad rom...'
+        (self.prg_size, self.chr_size, self.flags6, self.flags7, 
+            self.prg_ram_size, self.flags9, 
+            self.flags10) = struct.unpack('7b5x', header[4:])
+        if self.flags6 & 1 << 2:
+            print 'loading trainer'
+            self.trainer = f.read(512)
+        else:
+            self.trainer = None
+        print 'loading prg'
+        self.prg_rom = map(lambda x: struct.unpack('b', x)[0], f.read(16384 * self.prg_size))
+        print 'loading chr'
+        self.chr_rom = f.read(8192 * self.chr_size)
 
 filename = sys.argv[1]
 
-rom = open(filename).read()
-
-while rom:
-    inst = Instruction.read(rom)
-    machine.execute(inst)
+rom = Rom(open(filename))
+mach = Machine(rom)
+#print hex(ord(mach.get_mem(mach.pc)))
+mach.run()
