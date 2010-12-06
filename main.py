@@ -3,6 +3,7 @@ import struct
 
 class Machine(object):
     '''Class for actually simulating the machine'''
+#for nestest
     pc = 0xC000
     a = s = p = 0
     x = y = 0
@@ -37,8 +38,9 @@ class Machine(object):
     def run(self):
         #self.running = True
         #while self.running
-        inst = self.next_inst()
-        print inst
+        for i in range(10):
+            inst = self.next_inst()
+            print inst
         #self.execute(inst)
 
     def next_inst(self):
@@ -59,19 +61,29 @@ class Machine(object):
     def nop(inst):
         pass
     def jmp(inst):
-        pc = inst.operand
+        self.pc = inst.operand
+    def cld(inst):
+        self.set_flag('D', False)
+    def ldx(inst):
+        self.x = inst.operand
 
 class Instruction(object):
     '''Class for parsing instructions'''
-    opcodes = { 0x4C : ('jmp','imm') }
+    opcodes = { 0x4C : ('jmp', 'imm'),
+                0xd8 : ('cld', 'imp'),
+                0xa2 : ('ldx', 'imm')}
     type = 'nop'
     opcode = 0x00 
-    addr_mode = '#'
+    addr_mode = ''
     operand = 0
     def __init__(self, op):
         self.opcode = op
-        self.op, self.addr_mode = self.opcodes[op]
-        self.addr_len = 4
+        try:
+            self.op, self.addr_mode = self.opcodes[op]
+        except:
+            print 'unsupported opcode: ' + hex(op)
+            sys.exit(1)
+        self.addr_len = 0
     def parse_operand(self, addr):
         """if addr_mode == 'imm':
             operand = addr
@@ -99,6 +111,10 @@ class Instruction(object):
             operand = a"""
         if self.addr_mode == 'imm':
             self.operand = addr
+            self.addr_len = 4
+        elif self.addr_mode == 'imp':
+            self.operand = ''
+            self.addr_len = 0
         else:
             print 'Error, unrecognized addressing mode'
             sys.exit(1)
@@ -123,7 +139,7 @@ class Rom(object):
         else:
             self.trainer = None
         print 'loading prg'
-        self.prg_rom = map(lambda x: struct.unpack('b', x)[0], f.read(16384 * self.prg_size))
+        self.prg_rom = map(lambda x: struct.unpack('B', x)[0], f.read(16384 * self.prg_size))
         print 'loading chr'
         self.chr_rom = f.read(8192 * self.chr_size)
 
