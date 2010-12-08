@@ -11,14 +11,27 @@ def hex4(i):
 
 class Machine(object):
     '''Class for actually simulating the machine'''
-#for nestest
-    pc = 0xC000
+#CPU
+    pc = 0x8000 # for nestest
     prev_pc = pc
     a = 0
     s = 0
     p = 0x24
     x = y = 0
     mem = [0]
+#PPU
+    sl = -1
+    cyc = 0
+    pctrl = 0
+    pmask = 0
+    pstat = 0b10100000
+    p3 = 0
+    p5 = 0
+    p6 = 0
+    pscroll = 0
+    paddr = 0
+    pdata = 0
+    ppu_mem = [0]
 
     flags = { 'N': 1 << 7,
               'V': 1 << 6,
@@ -40,14 +53,28 @@ class Machine(object):
 
     #TODO mem should be its own class and slicable
     def get_mem(self, addr):
-        if addr >= 0xC000:
-            return self.rom.prg_rom[addr-0xC000]
-        if addr >= 0x8000:
+        if addr < 0x2000:
+            return self.mem[(addr) & 0x7ff]
+        elif addr < 0x4000:
+            #ppu
+            i = (addr - 0x2000) & 0x7
+        elif addr < 0x4018:
+            pass # input / ALU
+        elif addr < 0x8000:
+            pass
+        elif addr < 0xC000:
             return self.rom.prg_rom[addr-0x8000]
         else:
-            return self.mem[addr]
+            return self.rom.prg_rom[addr-0xC000]
     def set_mem(self, addr, val):
-        self.mem[addr] = val
+        if addr < 0x2000:
+            self.mem[(addr) & 0x7ff] = val
+        elif addr < 0x4000:
+            i = (addr - 0x2000) & 0x7
+        elif addr < 0x4018:
+            pass # input / ALU
+        else:
+            pass
 
     def push2(self, val):
         # val is 16 bit
@@ -81,22 +108,27 @@ class Machine(object):
 
     def __init__(self, rom):
         self.rom = rom
-        self.mem = [0xff] * (0x8000)
+        self.mem = [0xff] * (0x800)
+        #ppu stuff
 
     def run(self):
-        #self.running = True
-        #while self.running
+        #TODO interrupts
         self.reset()
-        self.running = True
-        while self.running:
-            print hex4(self.pc),
-            print '',
-            inst = self.next_inst()
-            print inst,
-            print '  ',
-            print self.dump_regs()
+        debug = True
+        while True:
+            if debug:
+                print hex4(self.pc),
+                print '',
+            try:
+                inst = self.next_inst()
+            except:
+                print 'Done!'
+                break
+            if debug:
+                print inst,
+                print '  ',
+                print self.dump_regs()
             self.execute(inst)
-        #self.execute(inst)
 
     def next_inst(self):
         self.prev_pc = self.pc
@@ -119,11 +151,12 @@ class Machine(object):
     def reset(self):
         self.s -= 3
         self.s &= 0xff
-        self.mem = [0xff] * (0x8000)
+        self.mem = [0xff] * (0x800)
         self.mem[0x0008] = 0xf7
         self.mem[0x0009] = 0xef
         self.mem[0x000a] = 0xdf
         self.mem[0x000f] = 0xbf
+        #ppu stuff
 
     def nop(self, inst):
         pass
@@ -737,6 +770,7 @@ class Rom(object):
             self.trainer = f.read(512)
         else:
             self.trainer = None
+        print self.prg_size
         self.prg_rom = map(lambda x: struct.unpack('B', x)[0], f.read(16384 * self.prg_size))
         self.chr_rom = f.read(8192 * self.chr_size)
 
