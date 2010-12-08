@@ -2,6 +2,9 @@ import sys
 import struct
 
 def hex2(i):
+    if i > 0xFF:
+        print 'warning, printing larger than 0xff value with hex2'
+        print hex(i)
     return '%02X' % (i & 0xFF)
 def hex4(i):
     return '%04X' % (i & 0xFFFF)
@@ -161,7 +164,7 @@ class Machine(object):
         if self.get_flag('N'):
             self.pc = inst.operand
     def bit(self, inst):
-        m = self.get_mem(inst.operand)
+        m = self.get_mem(inst.addr)
         self.set_flag('N', m & (1 << 7))
         self.set_flag('V', m & (1 << 6))
         self.set_flag('Z', m & self.a == 0)
@@ -196,7 +199,7 @@ class Machine(object):
         self.a = inst.operand
         self.set_nz(self.a)
     def sta(self, inst):
-        self.set_mem(inst.operand, self.a)
+        self.set_mem(inst.addr, self.a)
     def ldx(self, inst):
         self.x = inst.operand
         self.set_nz(self.x)
@@ -206,7 +209,11 @@ class Machine(object):
         self.y = inst.operand
         self.set_nz(self.y)
     def sty(self, inst):
-        self.set_mem(inst.operand, self.y)
+        self.set_mem(inst.addr, self.y)
+    def lax(self, inst):
+        self.a = inst.operand
+        self.x = inst.operand
+        self.set_nz(self.a)
 
     def php(self, inst):
         self.push(self.p | self.flags['B'])
@@ -227,6 +234,7 @@ class Machine(object):
     def eor(self, inst):
         self.a = self.a ^ inst.operand
         self.set_nz(self.a)
+
     def adc(self, inst):
         a7 = self.a & (1 << 7)
         m7 = inst.operand & (1 << 7)
@@ -246,6 +254,7 @@ class Machine(object):
         self.set_nz(self.a)
         r7 = self.a & (1 << 7)
         self.set_flag('V', not ((a7 == m7) or (a7 != m7 and r7 == a7)))
+
     def inx(self, inst):
         self.x += 1
         self.x &= 0xff
@@ -262,21 +271,51 @@ class Machine(object):
         self.y -= 1
         self.y &= 0xff
         self.set_nz(self.y)  
+    def inc(self, inst):
+        inst.operand += 1
+        inst.operand &= 0xff
+        self.set_nz(inst.operand)
+        self.set_mem(inst.addr, inst.operand)
+    def dec(self, inst):
+        inst.operand -= 1
+        inst.operand &= 0xff
+        self.set_nz(inst.operand)
+        self.set_mem(inst.addr, inst.operand)
+
+
     def lsr_a(self, inst):
         self.set_flag('C', self.a & (1))
         self.a >>= 1
         self.set_nz(self.a)
+    def lsr(self, inst):
+        self.set_flag('C', inst.operand & (1))
+        inst.operand >>= 1
+        self.set_mem(inst.addr, inst.operand)
+        self.set_nz(inst.operand)
     def asl_a(self, inst):
         self.set_flag('C', self.a & (1 << 7))
         self.a <<= 1
         self.a &= 0xff
         self.set_nz(self.a)
+    def asl(self, inst):
+        self.set_flag('C', inst.operand & (1 << 7))
+        inst.operand <<= 1
+        inst.operand &= 0xff
+        self.set_mem(inst.addr, inst.operand)
+        self.set_nz(inst.operand)
     def ror_a(self, inst):
         new_c = self.a & 1
         self.a >>= 1
         self.a |= (1 << 7) if self.get_flag('C') else 0
         self.set_flag('C', new_c)
         self.set_nz(self.a)
+    def ror(self, inst):
+        new_c = inst.operand & 1
+        inst.operand >>= 1
+        inst.operand |= (1 << 7) if self.get_flag('C') else 0
+        self.set_flag('C', new_c)
+        self.set_mem(inst.addr, inst.operand)
+        self.set_nz(inst.operand)
     def rol_a(self, inst):
         new_c = self.a & (1 << 7)
         self.a <<= 1
@@ -284,6 +323,14 @@ class Machine(object):
         self.a &= 0xff
         self.set_flag('C', new_c)
         self.set_nz(self.a)
+    def rol(self, inst):
+        new_c = inst.operand & (1 << 7)
+        inst.operand <<= 1
+        inst.operand |= 1 if self.get_flag('C') else 0
+        inst.operand &= 0xff
+        self.set_flag('C', new_c)
+        self.set_mem(inst.addr, inst.operand)
+        self.set_nz(inst.operand)
     
     def tay(self, inst):
         self.y = self.a
@@ -305,72 +352,196 @@ class Machine(object):
  
 class Instruction(object):
     '''Class for parsing instructions'''
-    opcodes = { 0x08 : ('php', 'imp'),
+    opcodes = { 0x01 : ('ora', 'ixid'),
+                0x04 : ('nop*', 'zp'),
+                0x05 : ('ora', 'zp'),
+                0x06 : ('asl', 'zp'),
+                0x08 : ('php', 'imp'),
                 0x09 : ('ora', 'imm'),
                 0x0a : ('asl_a', 'a'),
+                0x0c : ('nop*', 'abs'),
+                0x0d : ('ora', 'abs'),
+                0x0e : ('asl', 'abs'),
                 0x10 : ('bpl', 'rel'),
+                0x11 : ('ora', 'idix'),
+                0x14 : ('nop*', 'zpx'),
+                0x15 : ('ora', 'zpx'),
+                0x16 : ('asl', 'zpx'),
                 0x18 : ('clc', 'imp'),
+                0x19 : ('ora', 'absy'),
+                0x1a : ('nop*', 'imp'),
+                0x1c : ('nop*', 'absx'),
+                0x1d : ('ora', 'absx'),
+                0x1e : ('asl', 'absx'),
                 0x20 : ('jsr', 'abs'),
+                0x21 : ('and_', 'ixid'),
                 0x24 : ('bit', 'zp'),
+                0x25 : ('and_', 'zp'),
+                0x26 : ('rol', 'zp'),
                 0x28 : ('plp', 'imp'),
                 0x29 : ('and_', 'imm'),
                 0x2a : ('rol_a', 'a'),
+                0x2c : ('bit', 'abs'),
+                0x2d : ('and_', 'abs'),
+                0x2e : ('rol', 'abs'),
                 0x30 : ('bmi', 'rel'),
+                0x31 : ('and_', 'idix'),
+                0x34 : ('nop*', 'zpx'),
+                0x35 : ('and_', 'zpx'),
+                0x36 : ('rol', 'zpx'),
                 0x38 : ('sec', 'imp'),
+                0x39 : ('and_', 'absy'),
+                0x3a : ('nop*', 'imp'),
+                0x3c : ('nop*', 'absx'),
+                0x3d : ('and_', 'absx'),
+                0x3e : ('rol', 'absx'),
                 0x40 : ('rti', 'imp'),
+                0x41 : ('eor', 'ixid'),
+                0x44 : ('nop*', 'zp'),
+                0x45 : ('eor', 'zp'),
+                0x46 : ('lsr', 'zp'),
                 0x48 : ('pha', 'imp'),
                 0x49 : ('eor', 'imm'),
                 0x4a : ('lsr_a', 'a'),
-                0x4C : ('jmp', 'abs'),
+                0x4c : ('jmp', 'abs'),
+                0x4d : ('eor', 'abs'),
+                0x4e : ('lsr', 'abs'),
                 0x50 : ('bvc', 'rel'),
+                0x51 : ('eor', 'idix'),
+                0x54 : ('nop*', 'zpx'),
+                0x55 : ('eor', 'zpx'),
+                0x56 : ('lsr', 'zpx'),
+                0x59 : ('eor', 'absy'),
+                0x5a : ('nop*', 'imp'),
+                0x5c : ('nop*', 'absx'),
+                0x5d : ('eor', 'absx'),
+                0x5e : ('lsr', 'absx'),
                 0x60 : ('rts', 'imp'),
+                0x61 : ('adc', 'ixid'),
+                0x64 : ('nop*', 'zp'),
+                0x65 : ('adc', 'zp'),
+                0x66 : ('ror', 'zp'),
                 0x68 : ('pla', 'imp'),
                 0x69 : ('adc', 'imm'),
                 0x6a : ('ror_a', 'a'),
+                0x6c : ('jmp', 'absi'),
+                0x6d : ('adc', 'abs'),
+                0x6e : ('ror', 'abs'),
                 0x70 : ('bvs', 'rel'),
+                0x71 : ('adc', 'idix'),
+                0x74 : ('nop*', 'zpx'),
+                0x75 : ('adc', 'zpx'),
+                0x76 : ('ror', 'zpx'),
                 0x78 : ('sei', 'imp'),
-                0x84 : ('sty', 'imm'),
+                0x79 : ('adc', 'absy'),
+                0x7a : ('nop*', 'imp'),
+                0x7c : ('nop*', 'absx'),
+                0x7d : ('adc', 'absx'),
+                0x7e : ('ror', 'absx'),
+                0x80 : ('nop*', 'imm'),
+                0x81 : ('sta', 'ixid'),
+                0x84 : ('sty', 'zp'),
                 0x85 : ('sta', 'zp'),
                 0x86 : ('stx', 'zp'),
                 0x88 : ('dey', 'imp'),
                 0x8a : ('txa', 'imp'),
+                0x8c : ('sty', 'abs'),
                 0x8d : ('sta', 'abs'),
                 0x8e : ('stx', 'abs'),
                 0x90 : ('bcc', 'rel'),
+                0x91 : ('sta', 'idix'),
+                0x94 : ('sty', 'zpx'),
+                0x95 : ('sta', 'zpx'),
+                0x96 : ('stx', 'zpy'),
                 0x98 : ('tya', 'imp'),
+                0x99 : ('sta', 'absy'),
                 0x9a : ('txs', 'imp'),
+                0x9d : ('sta', 'absx'),
                 0xa0 : ('ldy', 'imm'),
                 0xa1 : ('lda', 'ixid'),
                 0xa2 : ('ldx', 'imm'),
+                0xa3 : ('lax*', 'ixid'),
+                0xa4 : ('ldy', 'zp'),
                 0xa5 : ('lda', 'zp'),
+                0xa6 : ('ldx', 'zp'),
+                0xa7 : ('lax*', 'zp'),
                 0xa8 : ('tay', 'imp'),
                 0xa9 : ('lda', 'imm'),
                 0xaa : ('tax', 'imp'),
+                0xac : ('ldy', 'abs'),
                 0xad : ('lda', 'abs'),
                 0xae : ('ldx', 'abs'),
+                0xaf : ('lax*', 'abs'),
                 0xb0 : ('bcs', 'rel'),
+                0xb1 : ('lda', 'idix'),
+                0xb3 : ('lax*', 'idix'),
+                0xb4 : ('ldy', 'zpx'),
+                0xb5 : ('lda', 'zpx'),
+                0xb6 : ('ldx', 'zpy'),
+                0xb7 : ('lax*', 'zpy'),
                 0xb8 : ('clv', 'imp'),
+                0xb9 : ('lda', 'absy'),
                 0xba : ('tsx', 'imp'),
+                0xbc : ('ldy', 'absx'),
+                0xbd : ('lda', 'absx'),
+                0xbe : ('ldx', 'absy'),
+                0xbf : ('lax*', 'absy'),
                 0xc0 : ('cpy', 'imm'),
+                0xc1 : ('cmp', 'ixid'),
+                0xc4 : ('cpy', 'zp'),
+                0xc5 : ('cmp', 'zp'),
+                0xc6 : ('dec', 'zp'),
                 0xc8 : ('iny', 'imp'),
                 0xc9 : ('cmp', 'imm'),
                 0xca : ('dex', 'imp'),
+                0xcc : ('cpy', 'abs'),
+                0xcd : ('cmp', 'abs'),
+                0xce : ('dec', 'abs'),
+                0xd0 : ('bne', 'rel'),
+                0xd1 : ('cmp', 'idix'),
+                0xd4 : ('nop*', 'zpx'),
+                0xd5 : ('cmp', 'zpx'),
+                0xd6 : ('dec', 'zpx'),
                 0xd8 : ('cld', 'imp'),
+                0xd9 : ('cmp', 'absy'),
+                0xda : ('nop*', 'imp'),
+                0xdc : ('nop*', 'absx'),
+                0xdd : ('cmp', 'absx'),
+                0xde : ('dec', 'absx'),
                 0xe0 : ('cpx', 'imm'),
+                0xe1 : ('sbc', 'ixid'),
+                0xe4 : ('cpx', 'zp'),
+                0xe5 : ('sbc', 'zp'),
+                0xe6 : ('inc', 'zp'),
                 0xe8 : ('inx', 'imp'),
                 0xe9 : ('sbc', 'imm'),
                 0xea : ('nop', 'imp'),
-                0xd0 : ('bne', 'rel'),
+                0xec : ('cpx', 'abs'),
+                0xed : ('sbc', 'abs'),
+                0xee : ('inc', 'abs'),
                 0xf0 : ('beq', 'rel'),
-                0xf8 : ('sed', 'imp')}
+                0xf1 : ('sbc', 'idix'),
+                0xf4 : ('nop*', 'zpx'),
+                0xf5 : ('sbc', 'zpx'),
+                0xf6 : ('inc', 'zpx'),
+                0xf8 : ('sed', 'imp'),
+                0xf9 : ('sbc', 'absy'),
+                0xfa : ('nop*', 'imp'),
+                0xfc : ('nop*', 'absx'),
+                0xfd : ('sbc', 'absx'),
+                0xfe : ('inc', 'absx'),}
     type = 'nop'
     opcode = 0x00 
     addr_mode = ''
     operand = 0
     def __init__(self, op):
         self.opcode = op
+        self.illegal = False
         try:
             self.op, self.addr_mode = self.opcodes[op]
+            if self.op[-1:] == '*':
+                self.op = self.op [:-1]
+                self.illegal = True
         except:
             print 'unsupported opcode: ' + hex2(op)
             sys.exit(1)
@@ -394,25 +565,62 @@ class Instruction(object):
             self.addr = addr[0] + (addr[1] << 8)
             self.operand = mach.get_mem(self.addr)
             self.addr_len = 2
+        elif self.addr_mode == 'absi':
+            self.i_addr = addr[0] + (addr[1] << 8)
+            self.addr = (mach.get_mem(self.i_addr) 
+                    + (mach.get_mem(((self.i_addr+1) & 0xff) 
+                        + (self.i_addr & 0xff00)) << 8))
+            self.addr_len = 2
+        elif self.addr_mode == 'absy':
+            self.i_addr = addr[0] + (addr[1] << 8)
+            self.addr = (self.i_addr + mach.y) & 0xffff
+            self.operand = mach.get_mem(self.addr)
+            self.addr_len = 2
+        elif self.addr_mode == 'absx':
+            self.i_addr = addr[0] + (addr[1] << 8)
+            self.addr = (self.i_addr + mach.x) & 0xffff
+            self.operand = mach.get_mem(self.addr)
+            self.addr_len = 2
         elif self.addr_mode == 'rel':
-            self.operand = addr[0] + mach.pc + 1
+            off = addr[0] if addr[0] < 0x80 else addr[0] - 0x100
+            self.operand = (off + mach.pc + 1) 
             self.addr_len = 1
         elif self.addr_mode == 'ixid':
-            self.addr = addr[0] + mach.x
-            print hex2(self.addr)
-            t = mach.get_mem(self.addr) + (mach.get_mem(self.addr+1) << 8) 
-            print hex4(t)
-            self.operand = mach.get_mem(t)
-            print hex2(self.operand)
+            #TODO these 0xff are suspect, possibly 0xffff?
+            self.i_addr = (addr[0] + mach.x) & 0xff
+            self.addr = (mach.get_mem(self.i_addr) + 
+                    (mach.get_mem((self.i_addr+1) & 0xff) << 8))
+            self.operand = mach.get_mem(self.addr)
+            self.addr_len = 1
+        elif self.addr_mode == 'idix':
+            self.i_addr = addr[0]
+            self.addr = (mach.get_mem(self.i_addr) +
+                    (mach.get_mem((self.i_addr+1) & 0xff) << 8)) + mach.y
+            self.addr &= 0xffff
+            self.operand = mach.get_mem(self.addr)
+            self.addr_len = 1
+        elif self.addr_mode == 'zpx':
+            self.i_addr = addr[0]
+            self.addr = (self.i_addr + mach.x) & 0xff
+            self.operand = mach.get_mem(self.addr)
+            self.addr_len = 1
+        elif self.addr_mode == 'zpy':
+            self.i_addr = addr[0]
+            self.addr = (self.i_addr + mach.y) & 0xff
+            self.operand = mach.get_mem(self.addr)
             self.addr_len = 1
         else:
             print 'Error, unrecognized addressing mode'
             sys.exit(1)
     def __repr__(self):
         #TODO rewrite
-        rep = hex2(self.opcode) + ' '
+        rep = ''
+        rep += hex2(self.opcode) + ' '
         rep += ''.join(hex2(self.args[i]) + ' ' for i in range(self.addr_len)) + ''.join('   ' for i in range(2-self.addr_len)) 
-        rep += ' '
+        if self.illegal:
+            rep += '*'
+        else:
+            rep += ' '
         rep += self.op.upper()[:3] + ' '
         if self.addr_mode == 'imm':
             rep += '#$' + hex2(self.operand)
@@ -425,7 +633,21 @@ class Instruction(object):
         elif self.addr_mode == 'a':
             rep += 'A'
         elif self.addr_mode == 'ixid':
-            rep += '($' + hex2(self.args[0]) + ',X) @ ' + hex2(self.addr)
+            rep += '($' + hex2(self.args[0]) + ',X) @ ' + hex2(self.i_addr)
+        elif self.addr_mode == 'idix':
+            #man this is so weird
+            rep += '($' + hex2(self.args[0]) + '),Y     ' + hex2((self.addr-mach.y)&0xff) + ' @ ' + hex2((self.addr) >> 8)
+        elif self.addr_mode == 'absi':
+            rep += '($' + hex4(self.i_addr) + ')'
+            rep += '     ' + hex2(self.addr & 0xff)
+        elif self.addr_mode == 'absy':
+            rep += '$'+hex4(self.i_addr)+',Y @ '+hex4(self.addr)
+        elif self.addr_mode == 'absx':
+            rep += '$'+hex4(self.i_addr)+',X @ '+hex4(self.addr)
+        elif self.addr_mode == 'zpx':
+            rep += '$'+hex2(self.i_addr)+',X @ '+hex2(self.addr)
+        elif self.addr_mode == 'zpy':
+            rep += '$'+hex2(self.i_addr)+',Y @ '+hex2(self.addr)
         while len(rep) < 37:
             rep += ' '
         return rep
