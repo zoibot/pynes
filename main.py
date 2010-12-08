@@ -1,6 +1,8 @@
 import sys
 import struct
 
+import pygame
+
 def hex2(i):
     if i > 0xFF:
         print 'warning, printing larger than 0xff value with hex2'
@@ -30,6 +32,7 @@ class Machine(object):
     p6 = 0
     pscroll = 0
     paddr = 0
+    paddr_state = False # false/true-> waiting for low/hi byte
     pdata = 0
     ppu_mem = [0]
 
@@ -58,6 +61,10 @@ class Machine(object):
         elif addr < 0x4000:
             #ppu
             i = (addr - 0x2000) & 0x7
+            if i == 0:
+                pass
+            elif i == 2:
+                return self.pstat
         elif addr < 0x4018:
             pass # input / ALU
         elif addr < 0x8000:
@@ -71,6 +78,15 @@ class Machine(object):
             self.mem[(addr) & 0x7ff] = val
         elif addr < 0x4000:
             i = (addr - 0x2000) & 0x7
+            if i == 0:
+                pass
+            elif i == 6:
+                if self.paddr_state:
+                    self.paddr |= (val << 8)
+                else:
+                    self.paddr = val
+                paddr_state = not paddr_state
+            #ppu
         elif addr < 0x4018:
             pass # input / ALU
         else:
@@ -108,6 +124,8 @@ class Machine(object):
 
     def __init__(self, rom):
         self.rom = rom
+        pygame.display.init()
+        self.surface = pygame.display.set_mode((256,240))
         self.mem = [0xff] * (0x800)
         #ppu stuff
 
@@ -156,6 +174,7 @@ class Machine(object):
         self.mem[0x0009] = 0xef
         self.mem[0x000a] = 0xdf
         self.mem[0x000f] = 0xbf
+        self.pc = self.get_mem(0xfffc) + (self.get_mem(0xfffd) << 8)
         #ppu stuff
 
     def nop(self, inst):
