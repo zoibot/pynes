@@ -35,6 +35,7 @@ class Machine(object):
     paddr_state = False # false/true-> waiting for low/hi byte
     pdata = 0
     ppu_mem = [0]
+    ppu_mem_buf = 0
 
     flags = { 'N': 1 << 7,
               'V': 1 << 6,
@@ -65,6 +66,13 @@ class Machine(object):
                 pass
             elif i == 2:
                 return self.pstat
+            elif i == 7:
+                if addr < 0x3f00:
+                    res = self.ppu_mem_buf
+                    self.ppu_mem_buf = self.ppu_mem[self.paddr]
+                    return res
+                else:
+                    return self.ppu_mem[self.paddr]
         elif addr < 0x4018:
             pass # input / ALU
         elif addr < 0x8000:
@@ -81,11 +89,15 @@ class Machine(object):
             if i == 0:
                 pass
             elif i == 6:
+                #paddr state????
                 if self.paddr_state:
                     self.paddr |= (val << 8)
                 else:
                     self.paddr = val
-                paddr_state = not paddr_state
+                self.paddr_state = not self.paddr_state
+            elif i == 7:
+                self.ppu_mem[self.paddr] = val
+                self.paddr += 1
             #ppu
         elif addr < 0x4018:
             pass # input / ALU
@@ -128,6 +140,7 @@ class Machine(object):
         self.surface = pygame.display.set_mode((256,240))
         self.mem = [0xff] * (0x800)
         #ppu stuff
+        self.ppu_mem = [0xff] * (0x4000)
 
     def run(self):
         #TODO interrupts
@@ -137,11 +150,7 @@ class Machine(object):
             if debug:
                 print hex4(self.pc),
                 print '',
-            try:
-                inst = self.next_inst()
-            except:
-                print 'Done!'
-                break
+            inst = self.next_inst()
             if debug:
                 print inst,
                 print '  ',
