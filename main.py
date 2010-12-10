@@ -27,7 +27,7 @@ class Machine(object):
     pctrl = 0
     pmask = 0
     pstat = 0b10100000
-    p3 = 0
+    oamaddr = 0
     p5 = 0
     p6 = 0
     pscroll = 0
@@ -65,14 +65,21 @@ class Machine(object):
             if i == 0:
                 pass
             elif i == 2:
-                return self.pstat
+                ret = self.pstat
+                self.pstat &= ~(1 << 7)
+            elif i == 4:
+                ret = self.ppu_get_mem(self.oamaddr)
+                self.oamaddr += 1
+                return ret
             elif i == 7:
                 if addr < 0x3f00:
                     res = self.ppu_mem_buf
-                    self.ppu_mem_buf = self.ppu_mem[self.paddr]
+                    self.ppu_mem_buf = self.ppu_get_mem[self.paddr]
+                    self.paddr += 32 if self.pctrl & (1 << 2) else 1
                     return res
                 else:
-                    return self.ppu_mem[self.paddr]
+                    #needs to do some crap
+                    return self.ppu_get_mem(self.paddr)
         elif addr < 0x4018:
             pass # input / ALU
         elif addr < 0x8000:
@@ -87,22 +94,52 @@ class Machine(object):
         elif addr < 0x4000:
             i = (addr - 0x2000) & 0x7
             if i == 0:
-                pass
+                self.pctrl = val
+            elif i == 1:
+                self.pmask = val
+            elif i == 3:
+                self.oamaddr = val
+            elif i == 4:
+                self.set_ppu_mem(self.oamaddr, val)
+                self.oamaddr += 1
+            elif i == 5:
+                pass #something to do with scrolling
             elif i == 6:
                 #paddr state????
                 if self.paddr_state:
                     self.paddr |= (val << 8)
+                    self.paddr &= 0x3fff
                 else:
                     self.paddr = val
                 self.paddr_state = not self.paddr_state
             elif i == 7:
-                self.ppu_mem[self.paddr] = val
-                self.paddr += 1
+                self.set_ppu_mem(self.paddr, val)
+                self.paddr += 32 if self.pctrl & (1 << 2) else 1
             #ppu
         elif addr < 0x4018:
             pass # input / ALU
         else:
             pass
+
+    def ppu_get_mem(addr):
+        addr &= 0x3fff
+        if addr < 0x2000:
+            return self.rom.chr_rom[addr]
+        elif addr < 0x3000:
+            if self.rom.flags6 & 1:
+                #horizontal mirroring
+                if addr < 0x2400:
+                    return self.ppumem[addr]
+                elif addr < 0x2800:
+                    return self.ppumem[addr - ]
+        elif addr < 0x3f00:
+            return self.ppu_mem[addr]
+        else:
+            #palette
+            return self.ppu_mem[addr]
+    def ppu_set_mem(addr, val):
+        addr &= 0x3fff
+        self.ppu_mem[addr] = val
 
     def push2(self, val):
         # val is 16 bit
@@ -156,6 +193,8 @@ class Machine(object):
                 print '  ',
                 print self.dump_regs()
             self.execute(inst)
+            for i in range(3):
+                self.run_ppu()
 
     def next_inst(self):
         self.prev_pc = self.pc
@@ -174,6 +213,26 @@ class Machine(object):
             print e
             sys.exit(1)
             #should log this
+
+    def run_ppu():
+        if self.sl < 0:
+            if self.cyc == 341:
+                self.pstat |= (1 << 7)
+                if self.pctrl & (1 << 7):
+                    self.pc = self.get_mem(0xfffa) + (self.get_mem(0xfffb) << 8)
+            self.cyc += 1
+        elif self.sl < 20:
+            pass
+        elif self.sl == 20:
+            pass
+        else:
+            pass #render scanline
+
+       if self.cyc == 341:
+            self.cyc = 0
+            self.sl += 1
+       if self.sl == 260:
+            self.sl = -1
 
     def reset(self):
         self.s -= 3
