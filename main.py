@@ -74,11 +74,11 @@ class Machine(object):
             elif i == 7:
                 if addr < 0x3f00:
                     res = self.ppu_mem_buf
-                    self.ppu_mem_buf = self.ppu_get_mem[self.paddr]
+                    self.ppu_mem_buf = self.ppu_get_mem(self.paddr)
                     self.paddr += 32 if self.pctrl & (1 << 2) else 1
                     return res
                 else:
-                    #needs to do some crap
+                    #needs to do some crap, also stil get mem
                     return self.ppu_get_mem(self.paddr)
         elif addr < 0x4018:
             pass # input / ALU
@@ -129,9 +129,13 @@ class Machine(object):
             if self.rom.flags6 & 1:
                 #horizontal mirroring
                 if addr < 0x2400:
-                    return self.ppumem[addr]
+                    return self.ppu_mem[addr]
                 elif addr < 0x2800:
-                    return self.ppumem[addr - ]
+                    return self.ppu_mem[addr - 0x400]
+                elif addr < 0x2C00:
+                    return self.ppu_mem[addr]
+                else:
+                    return self.ppu_mem[addr - 0x400]
         elif addr < 0x3f00:
             return self.ppu_mem[addr]
         else:
@@ -259,30 +263,29 @@ class Machine(object):
         self.p = (self.pop() | (1 << 5)) & ~(self.flags['B'])
         self.pc = self.pop2()
 
+    def branch(self, bool, inst):
+        if bool:
+            inst.cycles += 1
+            if inst.operand & 0xff00 != self.pc & 0xff00:
+                inst.cycles += 1
+            self.pc = inst.operand
+
     def bcs(self, inst):
-        if self.get_flag('C'):
-            self.pc = inst.operand
+        self.branch(self.get_flag('C'))
     def bcc(self, inst):
-        if not self.get_flag('C'):
-            self.pc = inst.operand
+        self.branch(not self.get_flag('C'))
     def beq(self, inst):
-        if self.get_flag('Z'):
-            self.pc = inst.operand
+        self.branch(self.get_flag('Z'))
     def bne(self, inst):
-        if not self.get_flag('Z'):
-            self.pc = inst.operand
+        self.branch(not self.get_flag('Z'))
     def bvs(self, inst):
-        if self.get_flag('V'):
-            self.pc = inst.operand
+        self.branch(self.get_flag('V'))
     def bvc(self, inst):
-        if not self.get_flag('V'):
-            self.pc = inst.operand
+        self.branch(not self.get_flag('V'))
     def bpl(self, inst):
-        if not self.get_flag('N'):
-            self.pc = inst.operand
+        self.branch(not self.get_flag('N'))
     def bmi(self, inst):
-        if self.get_flag('N'):
-            self.pc = inst.operand
+        self.branch(self.get_flag('N'))
     def bit(self, inst):
         m = self.get_mem(inst.addr)
         self.set_flag('N', m & (1 << 7))
@@ -491,232 +494,233 @@ class Machine(object):
         self.set_nz(self.a)
  
 class Instruction(object):
+#TODO brk, cli, some illegals
     '''Class for parsing instructions'''
-    opcodes = { 0x01 : ('ora', 'ixid'),
-                0x03 : ('slo*', 'ixid'),
-                0x04 : ('nop*', 'zp'),
-                0x05 : ('ora', 'zp'),
-                0x06 : ('asl', 'zp'),
-                0x07 : ('slo*', 'zp'),
-                0x08 : ('php', 'imp'),
-                0x09 : ('ora', 'imm'),
-                0x0a : ('asl_a', 'a'),
-                0x0c : ('nop*', 'abs'),
-                0x0d : ('ora', 'abs'),
-                0x0e : ('asl', 'abs'),
-                0x0f : ('slo*', 'abs'),
-                0x10 : ('bpl', 'rel'),
-                0x11 : ('ora', 'idix'),
-                0x13 : ('slo*', 'idix'),
-                0x14 : ('nop*', 'zpx'),
-                0x15 : ('ora', 'zpx'),
-                0x16 : ('asl', 'zpx'),
-                0x17 : ('slo*', 'zpx'),
-                0x18 : ('clc', 'imp'),
-                0x19 : ('ora', 'absy'),
-                0x1a : ('nop*', 'imp'),
-                0x1b : ('slo*', 'absy'),
-                0x1c : ('nop*', 'absx'),
-                0x1d : ('ora', 'absx'),
-                0x1e : ('asl', 'absx'),
-                0x1f : ('slo*', 'absx'),
-                0x20 : ('jsr', 'abs'),
-                0x21 : ('and_', 'ixid'),
-                0x23 : ('rla*', 'ixid'),
-                0x24 : ('bit', 'zp'),
-                0x25 : ('and_', 'zp'),
-                0x26 : ('rol', 'zp'),
-                0x27 : ('rla*', 'zp'),
-                0x28 : ('plp', 'imp'),
-                0x29 : ('and_', 'imm'),
-                0x2a : ('rol_a', 'a'),
-                0x2c : ('bit', 'abs'),
-                0x2d : ('and_', 'abs'),
-                0x2e : ('rol', 'abs'),
-                0x2f : ('rla*', 'abs'),
-                0x30 : ('bmi', 'rel'),
-                0x31 : ('and_', 'idix'),
-                0x33 : ('rla*', 'idix'),
-                0x34 : ('nop*', 'zpx'),
-                0x35 : ('and_', 'zpx'),
-                0x36 : ('rol', 'zpx'),
-                0x37 : ('rla*', 'zpx'),
-                0x38 : ('sec', 'imp'),
-                0x39 : ('and_', 'absy'),
-                0x3a : ('nop*', 'imp'),
-                0x3b : ('rla*', 'absy'),
-                0x3c : ('nop*', 'absx'),
-                0x3d : ('and_', 'absx'),
-                0x3e : ('rol', 'absx'),
-                0x3f : ('rla*', 'absx'),
-                0x40 : ('rti', 'imp'),
-                0x41 : ('eor', 'ixid'),
-                0x43 : ('sre*', 'ixid'),
-                0x44 : ('nop*', 'zp'),
-                0x45 : ('eor', 'zp'),
-                0x46 : ('lsr', 'zp'),
-                0x47 : ('sre*', 'zp'),
-                0x48 : ('pha', 'imp'),
-                0x49 : ('eor', 'imm'),
-                0x4a : ('lsr_a', 'a'),
-                0x4c : ('jmp', 'abs'),
-                0x4d : ('eor', 'abs'),
-                0x4e : ('lsr', 'abs'),
-                0x4f : ('sre*', 'abs'),
-                0x50 : ('bvc', 'rel'),
-                0x51 : ('eor', 'idix'),
-                0x53 : ('sre*', 'idix'),
-                0x54 : ('nop*', 'zpx'),
-                0x55 : ('eor', 'zpx'),
-                0x56 : ('lsr', 'zpx'),
-                0x57 : ('sre*', 'zpx'),
-                0x59 : ('eor', 'absy'),
-                0x5a : ('nop*', 'imp'),
-                0x5b : ('sre*', 'absy'),
-                0x5c : ('nop*', 'absx'),
-                0x5d : ('eor', 'absx'),
-                0x5e : ('lsr', 'absx'),
-                0x5f : ('sre*', 'absx'),
-                0x60 : ('rts', 'imp'),
-                0x61 : ('adc', 'ixid'),
-                0x63 : ('rra*', 'ixid'),
-                0x64 : ('nop*', 'zp'),
-                0x65 : ('adc', 'zp'),
-                0x66 : ('ror', 'zp'),
-                0x67 : ('rra*', 'zp'),
-                0x68 : ('pla', 'imp'),
-                0x69 : ('adc', 'imm'),
-                0x6a : ('ror_a', 'a'),
-                0x6c : ('jmp', 'absi'),
-                0x6d : ('adc', 'abs'),
-                0x6e : ('ror', 'abs'),
-                0x6f : ('rra*', 'abs'),
-                0x70 : ('bvs', 'rel'),
-                0x71 : ('adc', 'idix'),
-                0x73 : ('rra*', 'idix'),
-                0x74 : ('nop*', 'zpx'),
-                0x75 : ('adc', 'zpx'),
-                0x76 : ('ror', 'zpx'),
-                0x77 : ('rra*', 'zpx'),
-                0x78 : ('sei', 'imp'),
-                0x79 : ('adc', 'absy'),
-                0x7a : ('nop*', 'imp'),
-                0x7b : ('rra*', 'absy'),
-                0x7c : ('nop*', 'absx'),
-                0x7d : ('adc', 'absx'),
-                0x7e : ('ror', 'absx'),
-                0x7f : ('rra*', 'absx'),
-                0x80 : ('nop*', 'imm'),
-                0x81 : ('sta', 'ixid'),
-                0x83 : ('sax*', 'ixid'),
-                0x84 : ('sty', 'zp'),
-                0x85 : ('sta', 'zp'),
-                0x86 : ('stx', 'zp'),
-                0x87 : ('sax*', 'zp'),
-                0x88 : ('dey', 'imp'),
-                0x8a : ('txa', 'imp'),
-                0x8c : ('sty', 'abs'),
-                0x8d : ('sta', 'abs'),
-                0x8e : ('stx', 'abs'),
-                0x8f : ('sax*', 'abs'),
-                0x90 : ('bcc', 'rel'),
-                0x91 : ('sta', 'idix'),
-                0x94 : ('sty', 'zpx'),
-                0x95 : ('sta', 'zpx'),
-                0x96 : ('stx', 'zpy'),
-                0x97 : ('sax*', 'zpy'),
-                0x98 : ('tya', 'imp'),
-                0x99 : ('sta', 'absy'),
-                0x9a : ('txs', 'imp'),
-                0x9d : ('sta', 'absx'),
-                0xa0 : ('ldy', 'imm'),
-                0xa1 : ('lda', 'ixid'),
-                0xa2 : ('ldx', 'imm'),
-                0xa3 : ('lax*', 'ixid'),
-                0xa4 : ('ldy', 'zp'),
-                0xa5 : ('lda', 'zp'),
-                0xa6 : ('ldx', 'zp'),
-                0xa7 : ('lax*', 'zp'),
-                0xa8 : ('tay', 'imp'),
-                0xa9 : ('lda', 'imm'),
-                0xaa : ('tax', 'imp'),
-                0xac : ('ldy', 'abs'),
-                0xad : ('lda', 'abs'),
-                0xae : ('ldx', 'abs'),
-                0xaf : ('lax*', 'abs'),
-                0xb0 : ('bcs', 'rel'),
-                0xb1 : ('lda', 'idix'),
-                0xb3 : ('lax*', 'idix'),
-                0xb4 : ('ldy', 'zpx'),
-                0xb5 : ('lda', 'zpx'),
-                0xb6 : ('ldx', 'zpy'),
-                0xb7 : ('lax*', 'zpy'),
-                0xb8 : ('clv', 'imp'),
-                0xb9 : ('lda', 'absy'),
-                0xba : ('tsx', 'imp'),
-                0xbc : ('ldy', 'absx'),
-                0xbd : ('lda', 'absx'),
-                0xbe : ('ldx', 'absy'),
-                0xbf : ('lax*', 'absy'),
-                0xc0 : ('cpy', 'imm'),
-                0xc1 : ('cmp', 'ixid'),
-                0xc3 : ('dcp*', 'ixid'),
-                0xc4 : ('cpy', 'zp'),
-                0xc5 : ('cmp', 'zp'),
-                0xc6 : ('dec', 'zp'),
-                0xc7 : ('dcp*', 'zp'),
-                0xc8 : ('iny', 'imp'),
-                0xc9 : ('cmp', 'imm'),
-                0xca : ('dex', 'imp'),
-                0xcc : ('cpy', 'abs'),
-                0xcd : ('cmp', 'abs'),
-                0xce : ('dec', 'abs'),
-                0xcf : ('dcp*', 'abs'),
-                0xd0 : ('bne', 'rel'),
-                0xd1 : ('cmp', 'idix'),
-                0xd3 : ('dcp*', 'idix'),
-                0xd4 : ('nop*', 'zpx'),
-                0xd5 : ('cmp', 'zpx'),
-                0xd6 : ('dec', 'zpx'),
-                0xd7 : ('dcp*', 'zpx'),
-                0xd8 : ('cld', 'imp'),
-                0xd9 : ('cmp', 'absy'),
-                0xda : ('nop*', 'imp'),
-                0xdb : ('dcp*', 'absy'),
-                0xdc : ('nop*', 'absx'),
-                0xdd : ('cmp', 'absx'),
-                0xde : ('dec', 'absx'),
-                0xdf : ('dcp*', 'absx'),
-                0xe0 : ('cpx', 'imm'),
-                0xe1 : ('sbc', 'ixid'),
-                0xe3 : ('isb*', 'ixid'),
-                0xe4 : ('cpx', 'zp'),
-                0xe5 : ('sbc', 'zp'),
-                0xe6 : ('inc', 'zp'),
-                0xe7 : ('isb*', 'zp'),
-                0xe8 : ('inx', 'imp'),
-                0xe9 : ('sbc', 'imm'),
-                0xea : ('nop', 'imp'),
-                0xeb : ('sbc*', 'imm'),
-                0xec : ('cpx', 'abs'),
-                0xed : ('sbc', 'abs'),
-                0xee : ('inc', 'abs'),
-                0xef : ('isb*', 'abs'),
-                0xf0 : ('beq', 'rel'),
-                0xf1 : ('sbc', 'idix'),
-                0xf3 : ('isb*', 'idix'),
-                0xf4 : ('nop*', 'zpx'),
-                0xf5 : ('sbc', 'zpx'),
-                0xf6 : ('inc', 'zpx'),
-                0xf7 : ('isb*', 'zpx'),
-                0xf8 : ('sed', 'imp'),
-                0xf9 : ('sbc', 'absy'),
-                0xfa : ('nop*', 'imp'),
-                0xfb : ('isb*', 'absy'),
-                0xfc : ('nop*', 'absx'),
-                0xfd : ('sbc', 'absx'),
-                0xfe : ('inc', 'absx'),
-                0xff : ('isb*', 'absx'),}
+    opcodes = { 0x01 : ('ora', 'ixid', 6),
+                0x03 : ('slo*', 'ixid', 1),
+                0x04 : ('nop*', 'zp', 1),
+                0x05 : ('ora', 'zp', 1),
+                0x06 : ('asl', 'zp', 5),
+                0x07 : ('slo*', 'zp', 1),
+                0x08 : ('php', 'imp', 1),
+                0x09 : ('ora', 'imm', 1),
+                0x0a : ('asl_a', 'a', 2),
+                0x0c : ('nop*', 'abs', 1),
+                0x0d : ('ora', 'abs', 1),
+                0x0e : ('asl', 'abs', 6),
+                0x0f : ('slo*', 'abs', 1),
+                0x10 : ('bpl', 'rel', 2),
+                0x11 : ('ora', 'idix', 1),
+                0x13 : ('slo*', 'idix', 1),
+                0x14 : ('nop*', 'zpx', 1),
+                0x15 : ('ora', 'zpx', 1),
+                0x16 : ('asl', 'zpx', 6),
+                0x17 : ('slo*', 'zpx', 1),
+                0x18 : ('clc', 'imp', 2),
+                0x19 : ('ora', 'absy', 1),
+                0x1a : ('nop*', 'imp', 1),
+                0x1b : ('slo*', 'absy', 1),
+                0x1c : ('nop*', 'absx', 1),
+                0x1d : ('ora', 'absx', 1),
+                0x1e : ('asl', 'absx', 7),
+                0x1f : ('slo*', 'absx', 1),
+                0x20 : ('jsr', 'abs', 6),
+                0x21 : ('and_', 'ixid', 6),
+                0x23 : ('rla*', 'ixid', 1),
+                0x24 : ('bit', 'zp', 3),
+                0x25 : ('and_', 'zp', 2),
+                0x26 : ('rol', 'zp', 1),
+                0x27 : ('rla*', 'zp', 1),
+                0x28 : ('plp', 'imp', 1),
+                0x29 : ('and_', 'imm', 2),
+                0x2a : ('rol_a', 'a', 1),
+                0x2c : ('bit', 'abs', 4),
+                0x2d : ('and_', 'abs', 4),
+                0x2e : ('rol', 'abs', 1),
+                0x2f : ('rla*', 'abs', 1),
+                0x30 : ('bmi', 'rel', 2),
+                0x31 : ('and_', 'idix', 5),
+                0x33 : ('rla*', 'idix', 1),
+                0x34 : ('nop*', 'zpx', 1),
+                0x35 : ('and_', 'zpx', 3),
+                0x36 : ('rol', 'zpx', 1),
+                0x37 : ('rla*', 'zpx', 1),
+                0x38 : ('sec', 'imp', 2),
+                0x39 : ('and_', 'absy', 4),
+                0x3a : ('nop*', 'imp', 1),
+                0x3b : ('rla*', 'absy', 1),
+                0x3c : ('nop*', 'absx', 1),
+                0x3d : ('and_', 'absx', 4),
+                0x3e : ('rol', 'absx', 1),
+                0x3f : ('rla*', 'absx', 1),
+                0x40 : ('rti', 'imp', 1),
+                0x41 : ('eor', 'ixid', 6),
+                0x43 : ('sre*', 'ixid', 1),
+                0x44 : ('nop*', 'zp', 1),
+                0x45 : ('eor', 'zp', 3),
+                0x46 : ('lsr', 'zp', 5),
+                0x47 : ('sre*', 'zp', 1),
+                0x48 : ('pha', 'imp', 1),
+                0x49 : ('eor', 'imm', 2),
+                0x4a : ('lsr_a', 'a', 2),
+                0x4c : ('jmp', 'abs', 3),
+                0x4d : ('eor', 'abs', 4),
+                0x4e : ('lsr', 'abs', 6),
+                0x4f : ('sre*', 'abs', 1),
+                0x50 : ('bvc', 'rel', 2),
+                0x51 : ('eor', 'idix', 5),
+                0x53 : ('sre*', 'idix', 1),
+                0x54 : ('nop*', 'zpx', 1),
+                0x55 : ('eor', 'zpx', 4),
+                0x56 : ('lsr', 'zpx', 6),
+                0x57 : ('sre*', 'zpx', 1),
+                0x59 : ('eor', 'absy', 4),
+                0x5a : ('nop*', 'imp', 1),
+                0x5b : ('sre*', 'absy', 1),
+                0x5c : ('nop*', 'absx', 1),
+                0x5d : ('eor', 'absx', 4),
+                0x5e : ('lsr', 'absx', 7),
+                0x5f : ('sre*', 'absx', 1),
+                0x60 : ('rts', 'imp', 1),
+                0x61 : ('adc', 'ixid', 6),
+                0x63 : ('rra*', 'ixid', 1),
+                0x64 : ('nop*', 'zp', 1),
+                0x65 : ('adc', 'zp', 3),
+                0x66 : ('ror', 'zp', 1),
+                0x67 : ('rra*', 'zp', 1),
+                0x68 : ('pla', 'imp', 1),
+                0x69 : ('adc', 'imm', 2),
+                0x6a : ('ror_a', 'a', 1),
+                0x6c : ('jmp', 'absi', 5),
+                0x6d : ('adc', 'abs', 4),
+                0x6e : ('ror', 'abs', 1),
+                0x6f : ('rra*', 'abs', 1),
+                0x70 : ('bvs', 'rel', 2),
+                0x71 : ('adc', 'idix', 5),
+                0x73 : ('rra*', 'idix', 1),
+                0x74 : ('nop*', 'zpx', 1),
+                0x75 : ('adc', 'zpx', 4),
+                0x76 : ('ror', 'zpx', 1),
+                0x77 : ('rra*', 'zpx', 1),
+                0x78 : ('sei', 'imp', 2),
+                0x79 : ('adc', 'absy', 4),
+                0x7a : ('nop*', 'imp', 1),
+                0x7b : ('rra*', 'absy', 1),
+                0x7c : ('nop*', 'absx', 1),
+                0x7d : ('adc', 'absx', 4),
+                0x7e : ('ror', 'absx', 1),
+                0x7f : ('rra*', 'absx', 1),
+                0x80 : ('nop*', 'imm', 1),
+                0x81 : ('sta', 'ixid', 1),
+                0x83 : ('sax*', 'ixid', 1),
+                0x84 : ('sty', 'zp', 1),
+                0x85 : ('sta', 'zp', 1),
+                0x86 : ('stx', 'zp', 1),
+                0x87 : ('sax*', 'zp', 1),
+                0x88 : ('dey', 'imp', 1),
+                0x8a : ('txa', 'imp', 1),
+                0x8c : ('sty', 'abs', 1),
+                0x8d : ('sta', 'abs', 1),
+                0x8e : ('stx', 'abs', 1),
+                0x8f : ('sax*', 'abs', 1),
+                0x90 : ('bcc', 'rel', 2),
+                0x91 : ('sta', 'idix', 1),
+                0x94 : ('sty', 'zpx', 1),
+                0x95 : ('sta', 'zpx', 1),
+                0x96 : ('stx', 'zpy', 1),
+                0x97 : ('sax*', 'zpy', 1),
+                0x98 : ('tya', 'imp', 1),
+                0x99 : ('sta', 'absy', 1),
+                0x9a : ('txs', 'imp', 1),
+                0x9d : ('sta', 'absx', 1),
+                0xa0 : ('ldy', 'imm', 2),
+                0xa1 : ('lda', 'ixid', 6),
+                0xa2 : ('ldx', 'imm', 2),
+                0xa3 : ('lax*', 'ixid', 1),
+                0xa4 : ('ldy', 'zp', 3),
+                0xa5 : ('lda', 'zp', 3),
+                0xa6 : ('ldx', 'zp', 3),
+                0xa7 : ('lax*', 'zp', 1),
+                0xa8 : ('tay', 'imp', 1),
+                0xa9 : ('lda', 'imm', 2),
+                0xaa : ('tax', 'imp', 1),
+                0xac : ('ldy', 'abs', 4),
+                0xad : ('lda', 'abs', 4),
+                0xae : ('ldx', 'abs', 4),
+                0xaf : ('lax*', 'abs', 1),
+                0xb0 : ('bcs', 'rel', 2),
+                0xb1 : ('lda', 'idix', 5),
+                0xb3 : ('lax*', 'idix', 1),
+                0xb4 : ('ldy', 'zpx', 4),
+                0xb5 : ('lda', 'zpx', 4),
+                0xb6 : ('ldx', 'zpy', 4),
+                0xb7 : ('lax*', 'zpy', 1),
+                0xb8 : ('clv', 'imp', 2),
+                0xb9 : ('lda', 'absy', 4),
+                0xba : ('tsx', 'imp', 1),
+                0xbc : ('ldy', 'absx', 1),
+                0xbd : ('lda', 'absx', 4),
+                0xbe : ('ldx', 'absy', 4),
+                0xbf : ('lax*', 'absy', 1),
+                0xc0 : ('cpy', 'imm', 2),
+                0xc1 : ('cmp', 'ixid', 6),
+                0xc3 : ('dcp*', 'ixid', 1),
+                0xc4 : ('cpy', 'zp', 3),
+                0xc5 : ('cmp', 'zp', 3),
+                0xc6 : ('dec', 'zp', 5),
+                0xc7 : ('dcp*', 'zp', 1),
+                0xc8 : ('iny', 'imp', 1),
+                0xc9 : ('cmp', 'imm', 2),
+                0xca : ('dex', 'imp', 1),
+                0xcc : ('cpy', 'abs', 4),
+                0xcd : ('cmp', 'abs', 4),
+                0xce : ('dec', 'abs', 6),
+                0xcf : ('dcp*', 'abs', 1),
+                0xd0 : ('bne', 'rel', 2),
+                0xd1 : ('cmp', 'idix', 5),
+                0xd3 : ('dcp*', 'idix', 1),
+                0xd4 : ('nop*', 'zpx', 1),
+                0xd5 : ('cmp', 'zpx', 4),
+                0xd6 : ('dec', 'zpx', 6),
+                0xd7 : ('dcp*', 'zpx', 1),
+                0xd8 : ('cld', 'imp', 2),
+                0xd9 : ('cmp', 'absy', 4),
+                0xda : ('nop*', 'imp', 1),
+                0xdb : ('dcp*', 'absy', 1),
+                0xdc : ('nop*', 'absx', 1),
+                0xdd : ('cmp', 'absx', 4),
+                0xde : ('dec', 'absx', 7),
+                0xdf : ('dcp*', 'absx', 1),
+                0xe0 : ('cpx', 'imm', 2),
+                0xe1 : ('sbc', 'ixid', 1),
+                0xe3 : ('isb*', 'ixid', 1),
+                0xe4 : ('cpx', 'zp', 3),
+                0xe5 : ('sbc', 'zp', 1),
+                0xe6 : ('inc', 'zp', 5),
+                0xe7 : ('isb*', 'zp', 1),
+                0xe8 : ('inx', 'imp', 1),
+                0xe9 : ('sbc', 'imm', 1),
+                0xea : ('nop', 'imp', 1),
+                0xeb : ('sbc*', 'imm', 1),
+                0xec : ('cpx', 'abs', 4),
+                0xed : ('sbc', 'abs', 1),
+                0xee : ('inc', 'abs', 6),
+                0xef : ('isb*', 'abs', 1),
+                0xf0 : ('beq', 'rel', 2),
+                0xf1 : ('sbc', 'idix', 1),
+                0xf3 : ('isb*', 'idix', 1),
+                0xf4 : ('nop*', 'zpx', 1),
+                0xf5 : ('sbc', 'zpx', 1),
+                0xf6 : ('inc', 'zpx', 6),
+                0xf7 : ('isb*', 'zpx', 1),
+                0xf8 : ('sed', 'imp', 2),
+                0xf9 : ('sbc', 'absy', 1),
+                0xfa : ('nop*', 'imp', 1),
+                0xfb : ('isb*', 'absy', 1),
+                0xfc : ('nop*', 'absx', 1),
+                0xfd : ('sbc', 'absx', 1),
+                0xfe : ('inc', 'absx', 7),
+                0xff : ('isb*', 'absx', 1)}
     type = 'nop'
     opcode = 0x00 
     addr_mode = ''
@@ -763,11 +767,15 @@ class Instruction(object):
             self.addr = (self.i_addr + mach.y) & 0xffff
             self.operand = mach.get_mem(self.addr)
             self.addr_len = 2
+            if self.i_addr & 0xff00 != self.addr & 0xff00:
+                self.cycles += 1
         elif self.addr_mode == 'absx':
             self.i_addr = addr[0] + (addr[1] << 8)
             self.addr = (self.i_addr + mach.x) & 0xffff
             self.operand = mach.get_mem(self.addr)
             self.addr_len = 2
+            if self.i_addr & 0xff00 != self.addr & 0xff00:
+                self.cycles += 1
         elif self.addr_mode == 'rel':
             off = addr[0] if addr[0] < 0x80 else addr[0] - 0x100
             self.operand = (off + mach.pc + 1) 
@@ -786,6 +794,8 @@ class Instruction(object):
             self.addr &= 0xffff
             self.operand = mach.get_mem(self.addr)
             self.addr_len = 1
+            if self.addr & 0xff00 != (self.addr - mach.y) & 0xff00:
+                self.cycles += 1
         elif self.addr_mode == 'zpx':
             self.i_addr = addr[0]
             self.addr = (self.i_addr + mach.x) & 0xff
