@@ -11,6 +11,73 @@ def hex2(i):
 def hex4(i):
     return '%04X' % (i & 0xFFFF)
 
+colors = [
+0x7C7C7C,
+0x0000FC,
+0x0000BC,
+0x4428BC,
+0x940084,
+0xA80020,
+0xA81000,
+0x881400,
+0x503000,
+0x007800,
+0x006800,
+0x005800,
+0x004058,
+0x000000,
+0x000000,
+0x000000,
+0xBCBCBC,
+0x0078F8,
+0x0058F8,
+0x6844FC,
+0xD800CC,
+0xE40058,
+0xF83800,
+0xE45C10,
+0xAC7C00,
+0x00B800,
+0x00A800,
+0x00A844,
+0x008888,
+0x000000,
+0x000000,
+0x000000,
+0xF8F8F8,
+0x3CBCFC,
+0x6888FC,
+0x9878F8,
+0xF878F8,
+0xF85898,
+0xF87858,
+0xFCA044,
+0xF8B800,
+0xB8F818,
+0x58D854,
+0x58F898,
+0x00E8D8,
+0x787878,
+0x000000,
+0x000000,
+0xFCFCFC,
+0xA4E4FC,
+0xB8B8F8,
+0xD8B8F8,
+0xF8B8F8,
+0xF8A4C0,
+0xF0D0B0,
+0xFCE0A8,
+0xF8D878,
+0xD8F878,
+0xB8F8B8,
+0xB8F8D8,
+0x00FCFC,
+0xF8D8F8,
+0x000000,
+0x000000
+]
+
 class Machine(object):
     '''Class for actually simulating the machine'''
 #CPU
@@ -21,6 +88,7 @@ class Machine(object):
     p = 0x24
     x = y = 0
     mem = [0]
+    cycle_count = 0
 #PPU
     sl = -1
     cyc = 0
@@ -36,6 +104,7 @@ class Machine(object):
     pdata = 0
     ppu_mem = [0]
     ppu_mem_buf = 0
+    ppu_cycles = 0
 
     flags = { 'N': 1 << 7,
               'V': 1 << 6,
@@ -67,6 +136,7 @@ class Machine(object):
             elif i == 2:
                 ret = self.pstat
                 self.pstat &= ~(1 << 7)
+                return ret
             elif i == 4:
                 ret = self.ppu_get_mem(self.oamaddr)
                 self.oamaddr += 1
@@ -81,10 +151,10 @@ class Machine(object):
                     #needs to do some crap, also stil get mem
                     return self.ppu_get_mem(self.paddr)
         elif addr < 0x4018:
-            pass # input / ALU
+            return 0 # input ALU
         elif addr < 0x8000:
-            pass
-        elif addr < 0xC000:
+            return self.rom.prg_ram[addr-0x6000]
+        elif addr < 0xC000 or self.rom.prg_size > 1:
             return self.rom.prg_rom[addr-0x8000]
         else:
             return self.rom.prg_rom[addr-0xC000]
@@ -100,28 +170,30 @@ class Machine(object):
             elif i == 3:
                 self.oamaddr = val
             elif i == 4:
-                self.set_ppu_mem(self.oamaddr, val)
+                self.ppu_set_mem(self.oamaddr, val)
                 self.oamaddr += 1
             elif i == 5:
                 pass #something to do with scrolling
             elif i == 6:
                 #paddr state????
                 if self.paddr_state:
-                    self.paddr |= (val << 8)
+                    self.paddr |= val
                     self.paddr &= 0x3fff
                 else:
-                    self.paddr = val
+                    self.paddr = val << 8
                 self.paddr_state = not self.paddr_state
             elif i == 7:
-                self.set_ppu_mem(self.paddr, val)
+                self.ppu_set_mem(self.paddr, val)
                 self.paddr += 32 if self.pctrl & (1 << 2) else 1
             #ppu
         elif addr < 0x4018:
             pass # input / ALU
+        elif addr < 0x8000:
+            self.rom.prg_ram[addr-0x6000] = val
         else:
             pass
 
-    def ppu_get_mem(addr):
+    def ppu_get_mem(self, addr):
         addr &= 0x3fff
         if addr < 0x2000:
             return self.rom.chr_rom[addr]
@@ -136,12 +208,19 @@ class Machine(object):
                     return self.ppu_mem[addr]
                 else:
                     return self.ppu_mem[addr - 0x400]
+            else:
+                #vertical mirroring
+                if addr < 0x2800:
+                    return self.ppu_mem[addr]
+                else:
+                    return self.ppu_mem[addr - 0x800]
+ 
         elif addr < 0x3f00:
             return self.ppu_mem[addr]
         else:
             #palette
             return self.ppu_mem[addr]
-    def ppu_set_mem(addr, val):
+    def ppu_set_mem(self, addr, val):
         addr &= 0x3fff
         self.ppu_mem[addr] = val
 
@@ -173,12 +252,15 @@ class Machine(object):
         res += ' Y:'+hex2(self.y)
         res += ' P:'+hex2(self.p)
         res += ' SP:'+hex2(self.s)
+        res += ' CYC:%3i' % (self.cyc)
+        res += ' SL:%d' % self.sl
         return res
 
     def __init__(self, rom):
         self.rom = rom
         pygame.display.init()
         self.surface = pygame.display.set_mode((256,240))
+        self.pixels = pygame.surfarray.pixels2d(self.surface)
         self.mem = [0xff] * (0x800)
         #ppu stuff
         self.ppu_mem = [0xff] * (0x4000)
@@ -197,8 +279,10 @@ class Machine(object):
                 print '  ',
                 print self.dump_regs()
             self.execute(inst)
-            for i in range(3):
+            self.cycle_count += inst.cycles
+            while self.ppu_cycles < self.cycle_count * 3:
                 self.run_ppu()
+                self.ppu_cycles += 1
 
     def next_inst(self):
         self.prev_pc = self.pc
@@ -218,25 +302,65 @@ class Machine(object):
             sys.exit(1)
             #should log this
 
-    def run_ppu():
+    def run_ppu(self):
         if self.sl < 0:
             if self.cyc == 341:
                 self.pstat |= (1 << 7)
                 if self.pctrl & (1 << 7):
+                    self.push2(self.pc)
+                    self.push(self.p)
                     self.pc = self.get_mem(0xfffa) + (self.get_mem(0xfffb) << 8)
-            self.cyc += 1
+                self.nt_base = 0x2000 + 0x400 * (self.pctrl & 1) + 0x200 * (self.pctrl & (1 << 1))
+                self.at_base = self.nt_base + 0x3c0
         elif self.sl < 20:
+            #vblank
             pass
         elif self.sl == 20:
+            #start reading
             pass
         else:
-            pass #render scanline
-
-       if self.cyc == 341:
-            self.cyc = 0
+            fineX = self.cyc & 0x7
+            fineX16 = self.cyc & 0xf
+            fineY = self.sl & 0x7
+            fineY16 = self.sl & 0xf
+            # get new nt_byte
+            nt_addr = self.nt_base + (self.cyc >> 3) + (self.sl >> 3)*32
+            self.nt_val = self.ppu_get_mem(nt_addr)
+            base_pt_addr = 0x1000 * (self.pctrl & (1 << 4))
+            try:
+                self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
+            except TypeError as e:
+                print e
+                print 'WTF'
+                print hex4(self.nt_addr)
+                sys.exit(1)
+            #get new at value
+            low = self.ppu_get_mem(self.pt_addr + fineY)
+            hi = self.ppu_get_mem(self.pt_addr + 8 + fineY)
+            low &= (1 << (7-fineX))
+            low = 1 if low else 0
+            hi &= (1 << (7-fineX))
+            hi = 1 if hi else 0
+            color_i = low | (hi << 1)
+            self.at = self.ppu_get_mem(self.at_base + (self.cyc >> 5) + (self.sl >> 5)*8)
+            at_val = self.at >> ((4 if fineY16 < 8 else 0) + (2 if fineX16 < 8 else 0))
+            at_val &= 2
+            at_val <<= 2
+            color_i |= at_val
+            color = self.ppu_get_mem(0x3f00 + color_i)
+            if self.cyc < 256 and (color_i & 3) != 0:
+                if color < len(colors):
+                    self.pixels[self.cyc][self.sl-20] = colors[color]
+        if self.cyc == 341:
+            self.cyc = -1
             self.sl += 1
-       if self.sl == 260:
+        if self.sl == 260:
             self.sl = -1
+            self.surface.unlock()
+            pygame.display.flip()
+            self.surface.lock()
+        self.cyc += 1
+
 
     def reset(self):
         self.s -= 3
@@ -247,7 +371,7 @@ class Machine(object):
         self.mem[0x000a] = 0xdf
         self.mem[0x000f] = 0xbf
         self.pc = self.get_mem(0xfffc) + (self.get_mem(0xfffd) << 8)
-        #ppu stuff
+        #ppu stuff- PPU DOESN'T TURN OFF WTF
 
     def nop(self, inst):
         pass
@@ -271,21 +395,21 @@ class Machine(object):
             self.pc = inst.operand
 
     def bcs(self, inst):
-        self.branch(self.get_flag('C'))
+        self.branch(self.get_flag('C'), inst)
     def bcc(self, inst):
-        self.branch(not self.get_flag('C'))
+        self.branch(not self.get_flag('C'), inst)
     def beq(self, inst):
-        self.branch(self.get_flag('Z'))
+        self.branch(self.get_flag('Z'), inst)
     def bne(self, inst):
-        self.branch(not self.get_flag('Z'))
+        self.branch(not self.get_flag('Z'), inst)
     def bvs(self, inst):
-        self.branch(self.get_flag('V'))
+        self.branch(self.get_flag('V'), inst)
     def bvc(self, inst):
-        self.branch(not self.get_flag('V'))
+        self.branch(not self.get_flag('V'), inst)
     def bpl(self, inst):
-        self.branch(not self.get_flag('N'))
+        self.branch(not self.get_flag('N'), inst)
     def bmi(self, inst):
-        self.branch(self.get_flag('N'))
+        self.branch(self.get_flag('N'), inst)
     def bit(self, inst):
         m = self.get_mem(inst.addr)
         self.set_flag('N', m & (1 << 7))
@@ -322,16 +446,19 @@ class Machine(object):
         self.a = inst.operand
         self.set_nz(self.a)
     def sta(self, inst):
+        self.stored = self.a
         self.set_mem(inst.addr, self.a)
     def ldx(self, inst):
         self.x = inst.operand
         self.set_nz(self.x)
     def stx(self, inst):
+        self.stored = self.x
         self.set_mem(inst.addr, self.x)
     def ldy(self, inst):
         self.y = inst.operand
         self.set_nz(self.y)
     def sty(self, inst):
+        self.stored = self.y
         self.set_mem(inst.addr, self.y)
     def lax(self, inst):
         self.a = inst.operand
@@ -499,29 +626,29 @@ class Instruction(object):
     opcodes = { 0x01 : ('ora', 'ixid', 6),
                 0x03 : ('slo*', 'ixid', 1),
                 0x04 : ('nop*', 'zp', 1),
-                0x05 : ('ora', 'zp', 1),
+                0x05 : ('ora', 'zp', 2),
                 0x06 : ('asl', 'zp', 5),
                 0x07 : ('slo*', 'zp', 1),
-                0x08 : ('php', 'imp', 1),
-                0x09 : ('ora', 'imm', 1),
+                0x08 : ('php', 'imp', 3),
+                0x09 : ('ora', 'imm', 2),
                 0x0a : ('asl_a', 'a', 2),
                 0x0c : ('nop*', 'abs', 1),
-                0x0d : ('ora', 'abs', 1),
+                0x0d : ('ora', 'abs', 4),
                 0x0e : ('asl', 'abs', 6),
                 0x0f : ('slo*', 'abs', 1),
                 0x10 : ('bpl', 'rel', 2),
-                0x11 : ('ora', 'idix', 1),
+                0x11 : ('ora', 'idix', 5),
                 0x13 : ('slo*', 'idix', 1),
                 0x14 : ('nop*', 'zpx', 1),
-                0x15 : ('ora', 'zpx', 1),
+                0x15 : ('ora', 'zpx', 3),
                 0x16 : ('asl', 'zpx', 6),
                 0x17 : ('slo*', 'zpx', 1),
                 0x18 : ('clc', 'imp', 2),
-                0x19 : ('ora', 'absy', 1),
+                0x19 : ('ora', 'absy', 4),
                 0x1a : ('nop*', 'imp', 1),
                 0x1b : ('slo*', 'absy', 1),
                 0x1c : ('nop*', 'absx', 1),
-                0x1d : ('ora', 'absx', 1),
+                0x1d : ('ora', 'absx', 4),
                 0x1e : ('asl', 'absx', 7),
                 0x1f : ('slo*', 'absx', 1),
                 0x20 : ('jsr', 'abs', 6),
@@ -529,21 +656,21 @@ class Instruction(object):
                 0x23 : ('rla*', 'ixid', 1),
                 0x24 : ('bit', 'zp', 3),
                 0x25 : ('and_', 'zp', 2),
-                0x26 : ('rol', 'zp', 1),
+                0x26 : ('rol', 'zp', 5),
                 0x27 : ('rla*', 'zp', 1),
-                0x28 : ('plp', 'imp', 1),
+                0x28 : ('plp', 'imp', 4),
                 0x29 : ('and_', 'imm', 2),
-                0x2a : ('rol_a', 'a', 1),
+                0x2a : ('rol_a', 'a', 2),
                 0x2c : ('bit', 'abs', 4),
                 0x2d : ('and_', 'abs', 4),
-                0x2e : ('rol', 'abs', 1),
+                0x2e : ('rol', 'abs', 6),
                 0x2f : ('rla*', 'abs', 1),
                 0x30 : ('bmi', 'rel', 2),
                 0x31 : ('and_', 'idix', 5),
                 0x33 : ('rla*', 'idix', 1),
                 0x34 : ('nop*', 'zpx', 1),
                 0x35 : ('and_', 'zpx', 3),
-                0x36 : ('rol', 'zpx', 1),
+                0x36 : ('rol', 'zpx', 6),
                 0x37 : ('rla*', 'zpx', 1),
                 0x38 : ('sec', 'imp', 2),
                 0x39 : ('and_', 'absy', 4),
@@ -551,16 +678,16 @@ class Instruction(object):
                 0x3b : ('rla*', 'absy', 1),
                 0x3c : ('nop*', 'absx', 1),
                 0x3d : ('and_', 'absx', 4),
-                0x3e : ('rol', 'absx', 1),
+                0x3e : ('rol', 'absx', 7),
                 0x3f : ('rla*', 'absx', 1),
-                0x40 : ('rti', 'imp', 1),
+                0x40 : ('rti', 'imp', 6),
                 0x41 : ('eor', 'ixid', 6),
                 0x43 : ('sre*', 'ixid', 1),
                 0x44 : ('nop*', 'zp', 1),
                 0x45 : ('eor', 'zp', 3),
                 0x46 : ('lsr', 'zp', 5),
                 0x47 : ('sre*', 'zp', 1),
-                0x48 : ('pha', 'imp', 1),
+                0x48 : ('pha', 'imp', 3),
                 0x49 : ('eor', 'imm', 2),
                 0x4a : ('lsr_a', 'a', 2),
                 0x4c : ('jmp', 'abs', 3),
@@ -581,26 +708,26 @@ class Instruction(object):
                 0x5d : ('eor', 'absx', 4),
                 0x5e : ('lsr', 'absx', 7),
                 0x5f : ('sre*', 'absx', 1),
-                0x60 : ('rts', 'imp', 1),
+                0x60 : ('rts', 'imp', 6),
                 0x61 : ('adc', 'ixid', 6),
                 0x63 : ('rra*', 'ixid', 1),
                 0x64 : ('nop*', 'zp', 1),
                 0x65 : ('adc', 'zp', 3),
-                0x66 : ('ror', 'zp', 1),
+                0x66 : ('ror', 'zp', 5),
                 0x67 : ('rra*', 'zp', 1),
-                0x68 : ('pla', 'imp', 1),
+                0x68 : ('pla', 'imp', 4),
                 0x69 : ('adc', 'imm', 2),
-                0x6a : ('ror_a', 'a', 1),
+                0x6a : ('ror_a', 'a', 2),
                 0x6c : ('jmp', 'absi', 5),
                 0x6d : ('adc', 'abs', 4),
-                0x6e : ('ror', 'abs', 1),
+                0x6e : ('ror', 'abs', 6),
                 0x6f : ('rra*', 'abs', 1),
                 0x70 : ('bvs', 'rel', 2),
                 0x71 : ('adc', 'idix', 5),
                 0x73 : ('rra*', 'idix', 1),
                 0x74 : ('nop*', 'zpx', 1),
                 0x75 : ('adc', 'zpx', 4),
-                0x76 : ('ror', 'zpx', 1),
+                0x76 : ('ror', 'zpx', 6),
                 0x77 : ('rra*', 'zpx', 1),
                 0x78 : ('sei', 'imp', 2),
                 0x79 : ('adc', 'absy', 4),
@@ -608,31 +735,31 @@ class Instruction(object):
                 0x7b : ('rra*', 'absy', 1),
                 0x7c : ('nop*', 'absx', 1),
                 0x7d : ('adc', 'absx', 4),
-                0x7e : ('ror', 'absx', 1),
+                0x7e : ('ror', 'absx', 7),
                 0x7f : ('rra*', 'absx', 1),
                 0x80 : ('nop*', 'imm', 1),
-                0x81 : ('sta', 'ixid', 1),
+                0x81 : ('sta', 'ixid', 6),
                 0x83 : ('sax*', 'ixid', 1),
-                0x84 : ('sty', 'zp', 1),
-                0x85 : ('sta', 'zp', 1),
-                0x86 : ('stx', 'zp', 1),
+                0x84 : ('sty', 'zp', 3),
+                0x85 : ('sta', 'zp', 3),
+                0x86 : ('stx', 'zp', 3),
                 0x87 : ('sax*', 'zp', 1),
-                0x88 : ('dey', 'imp', 1),
-                0x8a : ('txa', 'imp', 1),
-                0x8c : ('sty', 'abs', 1),
-                0x8d : ('sta', 'abs', 1),
-                0x8e : ('stx', 'abs', 1),
+                0x88 : ('dey', 'imp', 2),
+                0x8a : ('txa', 'imp', 2),
+                0x8c : ('sty', 'abs', 4),
+                0x8d : ('sta', 'abs', 4),
+                0x8e : ('stx', 'abs', 4),
                 0x8f : ('sax*', 'abs', 1),
                 0x90 : ('bcc', 'rel', 2),
-                0x91 : ('sta', 'idix', 1),
-                0x94 : ('sty', 'zpx', 1),
-                0x95 : ('sta', 'zpx', 1),
-                0x96 : ('stx', 'zpy', 1),
+                0x91 : ('sta', 'idix', 6),
+                0x94 : ('sty', 'zpx', 4),
+                0x95 : ('sta', 'zpx', 4),
+                0x96 : ('stx', 'zpy', 4),
                 0x97 : ('sax*', 'zpy', 1),
-                0x98 : ('tya', 'imp', 1),
-                0x99 : ('sta', 'absy', 1),
-                0x9a : ('txs', 'imp', 1),
-                0x9d : ('sta', 'absx', 1),
+                0x98 : ('tya', 'imp', 2),
+                0x99 : ('sta', 'absy', 5),
+                0x9a : ('txs', 'imp', 2),
+                0x9d : ('sta', 'absx', 5),
                 0xa0 : ('ldy', 'imm', 2),
                 0xa1 : ('lda', 'ixid', 6),
                 0xa2 : ('ldx', 'imm', 2),
@@ -641,9 +768,9 @@ class Instruction(object):
                 0xa5 : ('lda', 'zp', 3),
                 0xa6 : ('ldx', 'zp', 3),
                 0xa7 : ('lax*', 'zp', 1),
-                0xa8 : ('tay', 'imp', 1),
+                0xa8 : ('tay', 'imp', 2),
                 0xa9 : ('lda', 'imm', 2),
-                0xaa : ('tax', 'imp', 1),
+                0xaa : ('tax', 'imp', 2),
                 0xac : ('ldy', 'abs', 4),
                 0xad : ('lda', 'abs', 4),
                 0xae : ('ldx', 'abs', 4),
@@ -657,8 +784,8 @@ class Instruction(object):
                 0xb7 : ('lax*', 'zpy', 1),
                 0xb8 : ('clv', 'imp', 2),
                 0xb9 : ('lda', 'absy', 4),
-                0xba : ('tsx', 'imp', 1),
-                0xbc : ('ldy', 'absx', 1),
+                0xba : ('tsx', 'imp', 2),
+                0xbc : ('ldy', 'absx', 4),
                 0xbd : ('lda', 'absx', 4),
                 0xbe : ('ldx', 'absy', 4),
                 0xbf : ('lax*', 'absy', 1),
@@ -669,9 +796,9 @@ class Instruction(object):
                 0xc5 : ('cmp', 'zp', 3),
                 0xc6 : ('dec', 'zp', 5),
                 0xc7 : ('dcp*', 'zp', 1),
-                0xc8 : ('iny', 'imp', 1),
+                0xc8 : ('iny', 'imp', 2),
                 0xc9 : ('cmp', 'imm', 2),
-                0xca : ('dex', 'imp', 1),
+                0xca : ('dex', 'imp', 2),
                 0xcc : ('cpy', 'abs', 4),
                 0xcd : ('cmp', 'abs', 4),
                 0xce : ('dec', 'abs', 6),
@@ -692,35 +819,35 @@ class Instruction(object):
                 0xde : ('dec', 'absx', 7),
                 0xdf : ('dcp*', 'absx', 1),
                 0xe0 : ('cpx', 'imm', 2),
-                0xe1 : ('sbc', 'ixid', 1),
+                0xe1 : ('sbc', 'ixid', 6),
                 0xe3 : ('isb*', 'ixid', 1),
                 0xe4 : ('cpx', 'zp', 3),
-                0xe5 : ('sbc', 'zp', 1),
+                0xe5 : ('sbc', 'zp', 3),
                 0xe6 : ('inc', 'zp', 5),
                 0xe7 : ('isb*', 'zp', 1),
-                0xe8 : ('inx', 'imp', 1),
-                0xe9 : ('sbc', 'imm', 1),
-                0xea : ('nop', 'imp', 1),
+                0xe8 : ('inx', 'imp', 2),
+                0xe9 : ('sbc', 'imm', 2),
+                0xea : ('nop', 'imp', 2),
                 0xeb : ('sbc*', 'imm', 1),
                 0xec : ('cpx', 'abs', 4),
-                0xed : ('sbc', 'abs', 1),
+                0xed : ('sbc', 'abs', 4),
                 0xee : ('inc', 'abs', 6),
                 0xef : ('isb*', 'abs', 1),
                 0xf0 : ('beq', 'rel', 2),
-                0xf1 : ('sbc', 'idix', 1),
+                0xf1 : ('sbc', 'idix', 5),
                 0xf3 : ('isb*', 'idix', 1),
                 0xf4 : ('nop*', 'zpx', 1),
-                0xf5 : ('sbc', 'zpx', 1),
+                0xf5 : ('sbc', 'zpx', 4),
                 0xf6 : ('inc', 'zpx', 6),
                 0xf7 : ('isb*', 'zpx', 1),
                 0xf8 : ('sed', 'imp', 2),
-                0xf9 : ('sbc', 'absy', 1),
+                0xf9 : ('sbc', 'absy', 4),
                 0xfa : ('nop*', 'imp', 1),
                 0xfb : ('isb*', 'absy', 1),
                 0xfc : ('nop*', 'absx', 1),
-                0xfd : ('sbc', 'absx', 1),
+                0xfd : ('sbc', 'absx', 4),
                 0xfe : ('inc', 'absx', 7),
-                0xff : ('isb*', 'absx', 1)}
+                0xff : ('isb*', 'absx', 7)}
     type = 'nop'
     opcode = 0x00 
     addr_mode = ''
@@ -729,7 +856,7 @@ class Instruction(object):
         self.opcode = op
         self.illegal = False
         try:
-            self.op, self.addr_mode = self.opcodes[op]
+            self.op, self.addr_mode, self.cycles = self.opcodes[op]
             if self.op[-1:] == '*':
                 self.op = self.op [:-1]
                 self.illegal = True
@@ -867,13 +994,12 @@ class Rom(object):
             self.trainer = f.read(512)
         else:
             self.trainer = None
-        print self.prg_size
         self.prg_rom = map(lambda x: struct.unpack('B', x)[0], f.read(16384 * self.prg_size))
-        self.chr_rom = f.read(8192 * self.chr_size)
+        self.chr_rom = map(lambda x: struct.unpack('B', x)[0], f.read(8192 * self.chr_size))
+        self.prg_ram = [0xff] * (8192 * 1 if not self.prg_ram_size else self.prg_ram_size)
+
 
 filename = sys.argv[1]
-
 rom = Rom(open(filename))
 mach = Machine(rom)
-#print hex(ord(mach.get_mem(mach.pc)))
 mach.run()
