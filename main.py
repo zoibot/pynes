@@ -98,7 +98,8 @@ class Machine(object):
     oamaddr = 0
     p5 = 0
     p6 = 0
-    pscroll = 0
+    scroll_x = scroll_y = 0
+    pscroll_state = False
     paddr = 0
     paddr_state = False # false/true-> waiting for low/hi byte
     pdata = 0
@@ -173,7 +174,11 @@ class Machine(object):
                 self.ppu_set_mem(self.oamaddr, val)
                 self.oamaddr += 1
             elif i == 5:
-                pass #something to do with scrolling
+                if self.pscroll_state:
+                    self.scroll_y = val
+                else:
+                    self.scroll_x = val
+                self.pscroll_state = not self.pscroll_state
             elif i == 6:
                 #paddr state????
                 if self.paddr_state:
@@ -260,6 +265,7 @@ class Machine(object):
         self.rom = rom
         pygame.display.init()
         self.surface = pygame.display.set_mode((256,240))
+        print self.surface.get_bitsize()
         self.pixels = pygame.surfarray.pixels2d(self.surface)
         self.mem = [0xff] * (0x800)
         #ppu stuff
@@ -310,7 +316,7 @@ class Machine(object):
                     self.push2(self.pc)
                     self.push(self.p)
                     self.pc = self.get_mem(0xfffa) + (self.get_mem(0xfffb) << 8)
-                self.nt_base = 0x2000 + 0x400 * (self.pctrl & 1) + 0x200 * (self.pctrl & (1 << 1))
+                self.nt_base = 0x2000 + 0x400 * (self.pctrl & 1) + 0x400 * (self.pctrl & (1 << 1))
                 self.at_base = self.nt_base + 0x3c0
         elif self.sl < 20:
             #vblank
@@ -319,12 +325,15 @@ class Machine(object):
             #start reading
             pass
         else:
-            fineX = self.cyc & 0x7
-            fineX16 = self.cyc & 0xf
-            fineY = self.sl & 0x7
-            fineY16 = self.sl & 0xf
+            x = self.cyc + self.scroll_x
+            y = self.sl - 21 + self.scroll_y
+            fineX = x & 0x7
+            fineX16 = x & 0xf
+            fineY = y & 0x7
+            fineY16 = y & 0xf
             # get new nt_byte
-            nt_addr = self.nt_base + (self.cyc >> 3) + (self.sl >> 3)*32
+            nt_addr = self.nt_base + (x >> 3) + (y >> 3)*32
+            print 'nta: ' + hex4(nt_addr) + ' x: ' + str(x) + ' y: ' + str(y)
             self.nt_val = self.ppu_get_mem(nt_addr)
             base_pt_addr = 0x1000 * (self.pctrl & (1 << 4))
             try:
@@ -342,7 +351,7 @@ class Machine(object):
             hi &= (1 << (7-fineX))
             hi = 1 if hi else 0
             color_i = low | (hi << 1)
-            self.at = self.ppu_get_mem(self.at_base + (self.cyc >> 5) + (self.sl >> 5)*8)
+            self.at = self.ppu_get_mem(self.at_base + (x >> 5) + (y >> 5)*8)
             at_val = self.at >> ((4 if fineY16 < 8 else 0) + (2 if fineX16 < 8 else 0))
             at_val &= 2
             at_val <<= 2
@@ -350,7 +359,8 @@ class Machine(object):
             color = self.ppu_get_mem(0x3f00 + color_i)
             if self.cyc < 256 and (color_i & 3) != 0:
                 if color < len(colors):
-                    self.pixels[self.cyc][self.sl-20] = colors[color]
+                    print 'hi: '+str((x,y))
+                    self.pixels[x,y] = colors[color]
         if self.cyc == 341:
             self.cyc = -1
             self.sl += 1
