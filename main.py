@@ -114,6 +114,8 @@ class Machine(object):
     platch_state = False
     paddr = 0
     taddr = 0
+    xoff = 0
+    fineX = 0
     paddr_buf = 0x0 # 0 waiting for lo byte
     pdata = 0
     ppu_mem = [0]
@@ -121,6 +123,8 @@ class Machine(object):
     ppu_cycles = 0
     frame_count = 0
     obj_mem = [0]
+    nt_base = 0x2000
+    at_base = 0x23c0
 #input
     read_input_state = 8
     keys = [0] * 8
@@ -155,6 +159,7 @@ class Machine(object):
             elif i == 2:
                 ret = self.pstat
                 self.pstat &= ~(1 << 7)
+                self.paddr_buf = 0x0
                 return ret
             elif i == 4:
                 ret = self.obj_mem[self.oamaddr]
@@ -191,6 +196,7 @@ class Machine(object):
             i = (addr - 0x2000) & 0x7
             if i == 0:
                 self.pctrl = val
+                self.taddr &= (~(0x3 << 10))
                 self.taddr |= (val & 0x3) << 10
             elif i == 1:
                 self.pmask = val
@@ -202,20 +208,23 @@ class Machine(object):
                 self.oamaddr &= 0xff
             elif i == 5:
                 if self.paddr_buf:
-                    self.scroll_x = self.paddr_buf >> 8
-                    self.scroll_y = val
+                    self.xoff = self.paddr_buf & 0x7
+                    self.taddr &= (~0x73ff)
+                    self.taddr |= self.paddr_buf >> 3
+                    self.taddr |= (val >> 3) << 5
+                    self.taddr |= (val & 0x7) << 12
                     self.paddr_buf = 0x0
                 else:
-                    self.paddr_buf = val << 8
+                    self.paddr_buf = val
             elif i == 6:
                 #paddr state????
                 if self.paddr_buf:
-                    self.paddr_buf |= val
-                    self.paddr_buf &= 0x3fff
-                    self.paddr = self.paddr_buf
+                    self.taddr = self.paddr_buf << 8
+                    self.taddr |= val
+                    self.paddr = self.taddr
                     self.paddr_buf = 0x0
                 else:
-                    self.paddr_buf = val << 8
+                    self.paddr_buf = val
             elif i == 7:
                 self.ppu_set_mem(self.paddr, val)
                 self.paddr += 32 if self.pctrl & (1 << 2) else 1
@@ -370,6 +379,7 @@ class Machine(object):
             #should log this
 
     def run_ppu(self):
+        rendering_enabled = (self.pmask & (3 << 3))
         if self.sl < 0:
             if self.cyc == 341:
                 self.pstat |= (1 << 7)
@@ -377,52 +387,77 @@ class Machine(object):
                     self.push2(self.pc)
                     self.push(self.p)
                     self.pc = self.get_mem(0xfffa) + (self.get_mem(0xfffb) << 8)
-                self.nt_base = 0x2000 + 0x400 * (self.pctrl & 1) + 0x400 * (self.pctrl & (1 << 1))
-                self.at_base = self.nt_base + 0x3c0
         elif self.sl < 20:
             #vblank
             pass
         elif self.sl == 20:
             #start reading
-            pass
+            if rendering_enabled and self.cyc == 341:
+                self.pstat &= ~(1 << 7)
+                self.paddr = self.taddr
+                self.fineX = self.xoff
+                self.cyc = -1
+                self.sl += 1
+                print 'base' + hex4(self.paddr)
         else:
-            x = self.cyc + self.scroll_x
-            y = self.sl - 21 + self.scroll_y
-            fineX = x & 0x7
-            fineX16 = x & 0xf
-            fineY = y & 0x7
-            fineY16 = y & 0xf
-            # get new nt_byte
-            nt_addr = self.nt_base + (x >> 3) + (y >> 3)*32
-            self.nt_val = self.ppu_get_mem(nt_addr)
-            base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
-            try:
+            if rendering_enabled and self.cyc < 256:
+                x = self.cyc
+                y = self.sl - 21
+                self.fineX = (self.fineX + 1) & 0x7
+                #fineX16 = x & 0xf
+                fineY = (self.paddr & 0x7000) >> 12
+                #fineY16 = y & 0xf
+                if self.fineX == 0 and self.x < 256:
+                    if self.paddr & 0x1f == 0x1f:
+                        self.paddr = self.paddr + 0x400 - 0x1f
+                    else:
+                        self.paddr += 1
+                # get new nt_byte
+                nt_addr = 0x2000 + (self.paddr & 0xfff)#self.nt_base + (x >> 3) + (y >> 3)*32
+                print 'hey'
+                print hex4(nt_addr)
+                print hex4(self.taddr)
+                print hex4(self.paddr)
+                print self.fineX, fineY
+                print x, y
+                print self.cyc, self.sl
+                self.at_base = (nt_addr & (~0xfff)) + 0x3c0
+                #print hex4(nt_addr)
+                self.nt_val = self.ppu_get_mem(nt_addr)
+                base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
                 self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
-            except TypeError as e:
-                print e
-                print 'WTF'
-                print hex4(self.nt_addr)
-                sys.exit(1)
             #get new at value
-            low = self.ppu_get_mem(self.pt_addr + fineY)
-            hi = self.ppu_get_mem(self.pt_addr + 8 + fineY)
-            low &= (1 << (7-fineX))
-            low = 1 if low else 0
-            hi &= (1 << (7-fineX))
-            hi = 1 if hi else 0
-            color_i = low | (hi << 1)
-            self.at = self.ppu_get_mem(self.at_base + (x >> 5) + (y >> 5)*8)
-            at_val = self.at >> ((0 if fineY16 < 8 else 4) + (0 if fineX16 < 8 else 2))
-            at_val &= 2
-            at_val <<= 2
-            color_i |= at_val
-            color = self.ppu_get_mem(0x3f00 + color_i)
-            if x < 256 and (color_i & 3) != 0:
-                if color < len(colors):
-                    self.pixels[x,y] = colors[color]
+                low = self.ppu_get_mem(self.pt_addr + fineY)
+                hi = self.ppu_get_mem(self.pt_addr + 8 + fineY)
+                low &= (1 << (7-self.fineX))
+                low = 1 if low else 0
+                hi &= (1 << (7-self.fineX))
+                hi = 1 if hi else 0
+                color_i = low | (hi << 1)
+                self.at = self.ppu_get_mem(self.at_base + ((nt_addr & 0x3ff)>>2))
+                at_val = self.at# >> ((0 if fineY16 < 8 else 4) + (0 if fineX16 < 8 else 2))
+                at_val &= 2
+                at_val <<= 2
+                color_i |= at_val
+                color = self.ppu_get_mem(0x3f00 + color_i)
+                if x < 256 and (color_i & 3) != 0:
+                    if color < len(colors):
+                        self.pixels[x,y] = colors[color]
         if self.cyc == 341:
             self.cyc = -1
             self.sl += 1
+            if rendering_enabled and self.sl > 20:
+                print 'scan'
+                self.paddr &= ~0x1f
+                #self.paddr |= self.taddr & 0x1f
+                self.paddr &= ~(1 << 10) 
+                #self.paddr |= self.taddr & (1 << 10)
+                fineY = (self.paddr & 0x7000) >> 12
+                if fineY == 7:
+                    self.paddr += 0x20
+                self.paddr &= ~(0x7000)
+                self.paddr |= ((fineY+1) & 0x7) << 12
+                self.fineX = 0#self.xoff
         if self.sl == 260:
             self.sl = -1
             self.surface.unlock()
