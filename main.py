@@ -1,5 +1,6 @@
 import sys
 import struct
+import cProfile
 
 import pygame
 
@@ -78,6 +79,17 @@ colors = [
 0x000000
 ]
 
+keymap = {pygame.K_LEFT: 6,
+    pygame.K_RIGHT: 7,
+    pygame.K_UP: 4,
+    pygame.K_DOWN: 5,
+    pygame.K_x: 1,
+    pygame.K_z: 0,
+    pygame.K_RETURN: 3,
+    pygame.K_s: 2}
+
+
+
 class Machine(object):
     '''Class for actually simulating the machine'''
 #CPU
@@ -99,13 +111,19 @@ class Machine(object):
     p5 = 0
     p6 = 0
     scroll_x = scroll_y = 0
-    pscroll_state = False
+    platch_state = False
     paddr = 0
-    paddr_state = False # false/true-> waiting for low/hi byte
+    taddr = 0
+    paddr_buf = 0x0 # 0 waiting for lo byte
     pdata = 0
     ppu_mem = [0]
     ppu_mem_buf = 0
     ppu_cycles = 0
+    frame_count = 0
+    obj_mem = [0]
+#input
+    read_input_state = 8
+    keys = [0] * 8
 
     flags = { 'N': 1 << 7,
               'V': 1 << 6,
@@ -139,8 +157,7 @@ class Machine(object):
                 self.pstat &= ~(1 << 7)
                 return ret
             elif i == 4:
-                ret = self.ppu_get_mem(self.oamaddr)
-                self.oamaddr += 1
+                ret = self.obj_mem[self.oamaddr]
                 return ret
             elif i == 7:
                 if addr < 0x3f00:
@@ -152,6 +169,14 @@ class Machine(object):
                     #needs to do some crap, also stil get mem
                     return self.ppu_get_mem(self.paddr)
         elif addr < 0x4018:
+            if addr == 0x4016:
+                if self.read_input_state < 8:
+                    print 'reading input ', self.read_input_state,
+                    print self.keys[self.read_input_state]
+                    self.read_input_state += 1
+                    return self.keys[self.read_input_state-1]
+                else:
+                    return 1
             return 0 # input ALU
         elif addr < 0x8000:
             return self.rom.prg_ram[addr-0x6000]
@@ -166,32 +191,47 @@ class Machine(object):
             i = (addr - 0x2000) & 0x7
             if i == 0:
                 self.pctrl = val
+                self.taddr |= (val & 0x3) << 10
             elif i == 1:
                 self.pmask = val
             elif i == 3:
                 self.oamaddr = val
             elif i == 4:
-                self.ppu_set_mem(self.oamaddr, val)
+                self.obj_mem[self.oamaddr] = val
                 self.oamaddr += 1
+                self.oamaddr &= 0xff
             elif i == 5:
-                if self.pscroll_state:
+                if self.paddr_buf:
+                    self.scroll_x = self.paddr_buf >> 8
                     self.scroll_y = val
+                    self.paddr_buf = 0x0
                 else:
-                    self.scroll_x = val
-                self.pscroll_state = not self.pscroll_state
+                    self.paddr_buf = val << 8
             elif i == 6:
                 #paddr state????
-                if self.paddr_state:
-                    self.paddr |= val
-                    self.paddr &= 0x3fff
+                if self.paddr_buf:
+                    self.paddr_buf |= val
+                    self.paddr_buf &= 0x3fff
+                    self.paddr = self.paddr_buf
+                    self.paddr_buf = 0x0
                 else:
-                    self.paddr = val << 8
-                self.paddr_state = not self.paddr_state
+                    self.paddr_buf = val << 8
             elif i == 7:
                 self.ppu_set_mem(self.paddr, val)
                 self.paddr += 32 if self.pctrl & (1 << 2) else 1
             #ppu
         elif addr < 0x4018:
+            if addr == 0x4016:
+                if val & 1:
+                    keys = pygame.key.get_pressed()
+                    for keycode in keymap:
+                        self.keys[keymap[keycode]] = 1 if keys[keycode] else 0
+                self.read_input_state = 0
+            elif addr == 0x4014:
+                start = val << 8
+                end = start + 0x100
+                self.obj_mem = self.mem[start:end]
+
             pass # input / ALU
         elif addr < 0x8000:
             self.rom.prg_ram[addr-0x6000] = val
@@ -221,13 +261,34 @@ class Machine(object):
                     return self.ppu_mem[addr - 0x800]
  
         elif addr < 0x3f00:
-            return self.ppu_mem[addr]
+            return self.ppu_get_mem(addr - 0x1000)
         else:
             #palette
             return self.ppu_mem[addr]
     def ppu_set_mem(self, addr, val):
         addr &= 0x3fff
-        self.ppu_mem[addr] = val
+        if addr < 0x3000:
+            if self.rom.flags6 & 1:
+                #horizontal mirroring
+                if addr < 0x2400:
+                    self.ppu_mem[addr] = val
+                elif addr < 0x2800:
+                    self.ppu_mem[addr - 0x400] = val
+                elif addr < 0x2C00:
+                    self.ppu_mem[addr] = val
+                else:
+                    self.ppu_mem[addr - 0x400] = val
+            else:
+                #vertical mirroring
+                if addr < 0x2800:
+                    self.ppu_mem[addr] = val
+                else:
+                    self.ppu_mem[addr - 0x800] = val
+        elif addr < 0x3f00:
+            self.ppu_set_mem(addr- 0x1000, val)
+        else:
+            self.ppu_mem[addr] = val
+
 
     def push2(self, val):
         # val is 16 bit
@@ -270,11 +331,11 @@ class Machine(object):
         self.mem = [0xff] * (0x800)
         #ppu stuff
         self.ppu_mem = [0xff] * (0x4000)
+        self.obj_mem = [0xff] * (0x100)
 
     def run(self):
-        #TODO interrupts
         self.reset()
-        debug = True
+        debug = False
         while True:
             if debug:
                 print hex4(self.pc),
@@ -333,9 +394,8 @@ class Machine(object):
             fineY16 = y & 0xf
             # get new nt_byte
             nt_addr = self.nt_base + (x >> 3) + (y >> 3)*32
-            print 'nta: ' + hex4(nt_addr) + ' x: ' + str(x) + ' y: ' + str(y)
             self.nt_val = self.ppu_get_mem(nt_addr)
-            base_pt_addr = 0x1000 * (self.pctrl & (1 << 4))
+            base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
             try:
                 self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
             except TypeError as e:
@@ -352,14 +412,13 @@ class Machine(object):
             hi = 1 if hi else 0
             color_i = low | (hi << 1)
             self.at = self.ppu_get_mem(self.at_base + (x >> 5) + (y >> 5)*8)
-            at_val = self.at >> ((4 if fineY16 < 8 else 0) + (2 if fineX16 < 8 else 0))
+            at_val = self.at >> ((0 if fineY16 < 8 else 4) + (0 if fineX16 < 8 else 2))
             at_val &= 2
             at_val <<= 2
             color_i |= at_val
             color = self.ppu_get_mem(0x3f00 + color_i)
-            if self.cyc < 256 and (color_i & 3) != 0:
+            if x < 256 and (color_i & 3) != 0:
                 if color < len(colors):
-                    print 'hi: '+str((x,y))
                     self.pixels[x,y] = colors[color]
         if self.cyc == 341:
             self.cyc = -1
@@ -368,7 +427,11 @@ class Machine(object):
             self.sl = -1
             self.surface.unlock()
             pygame.display.flip()
+            self.surface.fill(0x0)
             self.surface.lock()
+            pygame.event.pump()
+            print 'frame ', self.frame_count
+            self.frame_count += 1
         self.cyc += 1
 
 
@@ -875,6 +938,7 @@ class Instruction(object):
             sys.exit(1)
         self.addr_len = 0
     def parse_operand(self, addr, mach):
+        #TODO fix horrible don't read on 'st' hack
         self.args = addr
         if self.addr_mode == 'imm2':
             self.operand = addr[0] + (addr[1] << 8)
@@ -887,11 +951,13 @@ class Instruction(object):
             self.addr_len = 0
         elif self.addr_mode == 'zp':
             self.addr = addr[0]
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 1
         elif self.addr_mode == 'abs':
             self.addr = addr[0] + (addr[1] << 8)
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 2
         elif self.addr_mode == 'absi':
             self.i_addr = addr[0] + (addr[1] << 8)
@@ -902,14 +968,16 @@ class Instruction(object):
         elif self.addr_mode == 'absy':
             self.i_addr = addr[0] + (addr[1] << 8)
             self.addr = (self.i_addr + mach.y) & 0xffff
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 2
             if self.i_addr & 0xff00 != self.addr & 0xff00:
                 self.cycles += 1
         elif self.addr_mode == 'absx':
             self.i_addr = addr[0] + (addr[1] << 8)
             self.addr = (self.i_addr + mach.x) & 0xffff
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 2
             if self.i_addr & 0xff00 != self.addr & 0xff00:
                 self.cycles += 1
@@ -918,30 +986,33 @@ class Instruction(object):
             self.operand = (off + mach.pc + 1) 
             self.addr_len = 1
         elif self.addr_mode == 'ixid':
-            #TODO these 0xff are suspect, possibly 0xffff?
             self.i_addr = (addr[0] + mach.x) & 0xff
             self.addr = (mach.get_mem(self.i_addr) + 
                     (mach.get_mem((self.i_addr+1) & 0xff) << 8))
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 1
         elif self.addr_mode == 'idix':
             self.i_addr = addr[0]
             self.addr = (mach.get_mem(self.i_addr) +
                     (mach.get_mem((self.i_addr+1) & 0xff) << 8)) + mach.y
             self.addr &= 0xffff
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 1
             if self.addr & 0xff00 != (self.addr - mach.y) & 0xff00:
                 self.cycles += 1
         elif self.addr_mode == 'zpx':
             self.i_addr = addr[0]
             self.addr = (self.i_addr + mach.x) & 0xff
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 1
         elif self.addr_mode == 'zpy':
             self.i_addr = addr[0]
             self.addr = (self.i_addr + mach.y) & 0xff
-            self.operand = mach.get_mem(self.addr)
+            if self.op[:2] != 'st':
+                self.operand = mach.get_mem(self.addr)
             self.addr_len = 1
         else:
             print 'Error, unrecognized addressing mode'
@@ -1005,11 +1076,16 @@ class Rom(object):
         else:
             self.trainer = None
         self.prg_rom = map(lambda x: struct.unpack('B', x)[0], f.read(16384 * self.prg_size))
-        self.chr_rom = map(lambda x: struct.unpack('B', x)[0], f.read(8192 * self.chr_size))
+        self.chr_ram = (self.chr_size == 0)
+        if self.chr_ram:
+            self.chr_rom = [0xff] * 8192
+        else:
+            self.chr_rom = map(lambda x: struct.unpack('B', x)[0], f.read(8192 * self.chr_size))
         self.prg_ram = [0xff] * (8192 * 1 if not self.prg_ram_size else self.prg_ram_size)
 
 
 filename = sys.argv[1]
 rom = Rom(open(filename))
 mach = Machine(rom)
+#cProfile.run('mach.run()')
 mach.run()
