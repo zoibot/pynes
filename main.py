@@ -111,12 +111,11 @@ class Machine(object):
     p5 = 0
     p6 = 0
     scroll_x = scroll_y = 0
-    platch_state = False
+    platch = False
     paddr = 0
     taddr = 0
     xoff = 0
     fineX = 0
-    paddr_buf = 0x0 # 0 waiting for lo byte
     pdata = 0
     ppu_mem = [0]
     ppu_mem_buf = 0
@@ -159,7 +158,7 @@ class Machine(object):
             elif i == 2:
                 ret = self.pstat
                 self.pstat &= ~(1 << 7)
-                self.paddr_buf = 0x0
+                self.platch = False
                 return ret
             elif i == 4:
                 ret = self.obj_mem[self.oamaddr]
@@ -207,24 +206,27 @@ class Machine(object):
                 self.oamaddr += 1
                 self.oamaddr &= 0xff
             elif i == 5:
-                if self.paddr_buf:
-                    self.xoff = self.paddr_buf & 0x7
-                    self.taddr &= (~0x73ff)
-                    self.taddr |= self.paddr_buf >> 3
+                if self.platch:
+                    self.taddr &= (~0x73e0)
                     self.taddr |= (val >> 3) << 5
                     self.taddr |= (val & 0x7) << 12
-                    self.paddr_buf = 0x0
+                    self.platch = False
                 else:
-                    self.paddr_buf = val
+                    self.taddr &= ~0x1f
+                    self.taddr |= val >> 3
+                    self.xoff = val & 0x7
+                    self.fineX = val & 0x7
+                    self.platch = True
             elif i == 6:
-                #paddr state????
-                if self.paddr_buf:
-                    self.taddr = self.paddr_buf << 8
+                if self.platch:
+                    self.taddr &= ~0xff
                     self.taddr |= val
                     self.paddr = self.taddr
-                    self.paddr_buf = 0x0
+                    self.platch = False
                 else:
-                    self.paddr_buf = val
+                    self.taddr &= 0xff
+                    self.taddr |= (val & 0x3f) << 8
+                    self.platch = True
             elif i == 7:
                 self.ppu_set_mem(self.paddr, val)
                 self.paddr += 32 if self.pctrl & (1 << 2) else 1
@@ -388,8 +390,7 @@ class Machine(object):
                     self.push(self.p)
                     self.pc = self.get_mem(0xfffa) + (self.get_mem(0xfffb) << 8)
         elif self.sl < 20:
-            #vblank
-            pass
+            pass # vblank
         elif self.sl == 20:
             #start reading
             if rendering_enabled and self.cyc == 341:
@@ -414,15 +415,7 @@ class Machine(object):
                         self.paddr += 1
                 # get new nt_byte
                 nt_addr = 0x2000 + (self.paddr & 0xfff)#self.nt_base + (x >> 3) + (y >> 3)*32
-                print 'hey'
-                print hex4(nt_addr)
-                print hex4(self.taddr)
-                print hex4(self.paddr)
-                print self.fineX, fineY
-                print x, y
-                print self.cyc, self.sl
                 self.at_base = (nt_addr & (~0xfff)) + 0x3c0
-                #print hex4(nt_addr)
                 self.nt_val = self.ppu_get_mem(nt_addr)
                 base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
                 self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
@@ -435,7 +428,10 @@ class Machine(object):
                 hi = 1 if hi else 0
                 color_i = low | (hi << 1)
                 self.at = self.ppu_get_mem(self.at_base + ((nt_addr & 0x3ff)>>2))
-                at_val = self.at# >> ((0 if fineY16 < 8 else 4) + (0 if fineX16 < 8 else 2))
+                nt_off = nt_addr & 0x3ff
+                row = nt_off >> 5
+                col = nt_off & 0x1f
+                at_val = self.at >> ((0 if col % 2 == 0 else 4) + (0 if row % 2 == 0 else 2))
                 at_val &= 2
                 at_val <<= 2
                 color_i |= at_val
@@ -447,17 +443,16 @@ class Machine(object):
             self.cyc = -1
             self.sl += 1
             if rendering_enabled and self.sl > 20:
-                print 'scan'
                 self.paddr &= ~0x1f
-                #self.paddr |= self.taddr & 0x1f
+                self.paddr |= self.taddr & 0x1f
                 self.paddr &= ~(1 << 10) 
-                #self.paddr |= self.taddr & (1 << 10)
+                self.paddr |= self.taddr & (1 << 10)
                 fineY = (self.paddr & 0x7000) >> 12
                 if fineY == 7:
                     self.paddr += 0x20
                 self.paddr &= ~(0x7000)
                 self.paddr |= ((fineY+1) & 0x7) << 12
-                self.fineX = 0#self.xoff
+                self.fineX = self.xoff
         if self.sl == 260:
             self.sl = -1
             self.surface.unlock()
@@ -543,6 +538,8 @@ class Machine(object):
         self.set_flag('D', False)
     def clv(self, inst):
         self.set_flag('V', False)
+    def cli(self, inst):
+        self.set_flag('I', False)
     def sed(self, inst):
         self.set_flag('D', True)
     def sec(self, inst):
@@ -809,6 +806,7 @@ class Instruction(object):
                 0x55 : ('eor', 'zpx', 4),
                 0x56 : ('lsr', 'zpx', 6),
                 0x57 : ('sre*', 'zpx', 1),
+                0x58 : ('cli', 'imp', 2),
                 0x59 : ('eor', 'absy', 4),
                 0x5a : ('nop*', 'imp', 1),
                 0x5b : ('sre*', 'absy', 1),
