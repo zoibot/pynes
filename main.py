@@ -167,12 +167,16 @@ class Machine(object):
                 if self.paddr < 0x3f00:
                     res = self.ppu_mem_buf
                     self.ppu_mem_buf = self.ppu_get_mem(self.paddr)
+                    print hex4(self.paddr)
                     self.paddr += 32 if self.pctrl & (1 << 2) else 1
+                    self.paddr &= 0x3fff
                     return res
                 else:
                     #needs to do some crap, also stil get mem
                     res = self.ppu_get_mem(self.paddr)
+                    print hex4(self.paddr)
                     self.paddr += 32 if self.pctrl & (1 << 2) else 1
+                    self.paddr &= 0x3fff
                     return res
         elif addr < 0x4018:
             if addr == 0x4016:
@@ -232,6 +236,7 @@ class Machine(object):
             elif i == 7:
                 self.ppu_set_mem(self.paddr, val)
                 self.paddr += 32 if self.pctrl & (1 << 2) else 1
+                self.paddr &= 0x3fff
             #ppu
         elif addr < 0x4018:
             if addr == 0x4016:
@@ -280,6 +285,7 @@ class Machine(object):
             return self.ppu_mem[0x3f00 + (addr & 0x1f)]
     def ppu_set_mem(self, addr, val):
         addr &= 0x3fff
+        print 'write '+hex4(addr)
         if addr < 0x3000:
             if self.rom.flags6 & 1:
                 #horizontal mirroring
@@ -349,11 +355,13 @@ class Machine(object):
 
     def run(self):
         self.reset()
-        debug = False# True
+        debug = True#False# True
         while True:
             if debug:
                 print hex4(self.pc),
                 print '',
+            if self.pc == 0xa979:
+                self.pc = 0xAAB3
             inst = self.next_inst()
             if debug:
                 print inst,
@@ -439,8 +447,11 @@ class Machine(object):
                 at_val &= 2
                 at_val <<= 2
                 color_i |= at_val
-                color = self.ppu_get_mem(0x3f00 + color_i)
-                if x < 256 and (color_i & 3) != 0:
+                if color_i & 3:
+                    color = self.ppu_get_mem(0x3f00 + color_i)
+                else:
+                    color = self.ppu_get_mem(0x3f00)
+                if x < 256:
                     if color < len(colors):
                         self.pixels[x,y] = colors[color]
         if self.cyc == 341:
