@@ -164,14 +164,16 @@ class Machine(object):
                 ret = self.obj_mem[self.oamaddr]
                 return ret
             elif i == 7:
-                if addr < 0x3f00:
+                if self.paddr < 0x3f00:
                     res = self.ppu_mem_buf
                     self.ppu_mem_buf = self.ppu_get_mem(self.paddr)
                     self.paddr += 32 if self.pctrl & (1 << 2) else 1
                     return res
                 else:
                     #needs to do some crap, also stil get mem
-                    return self.ppu_get_mem(self.paddr)
+                    res = self.ppu_get_mem(self.paddr)
+                    self.paddr += 32 if self.pctrl & (1 << 2) else 1
+                    return res
         elif addr < 0x4018:
             if addr == 0x4016:
                 if self.read_input_state < 8:
@@ -275,7 +277,7 @@ class Machine(object):
             return self.ppu_get_mem(addr - 0x1000)
         else:
             #palette
-            return self.ppu_mem[addr]
+            return self.ppu_mem[0x3f00 + (addr & 0x1f)]
     def ppu_set_mem(self, addr, val):
         addr &= 0x3fff
         if addr < 0x3000:
@@ -297,8 +299,8 @@ class Machine(object):
                     self.ppu_mem[addr - 0x800] = val
         elif addr < 0x3f00:
             self.ppu_set_mem(addr- 0x1000, val)
-        else:
-            self.ppu_mem[addr] = val
+        else: 
+            self.ppu_mem[0x3f00 + (addr & 0x1f)] = val
 
 
     def push2(self, val):
@@ -329,8 +331,9 @@ class Machine(object):
         res += ' Y:'+hex2(self.y)
         res += ' P:'+hex2(self.p)
         res += ' SP:'+hex2(self.s)
-        res += ' CYC:%3i' % (self.cyc)
-        res += ' SL:%d' % self.sl
+        res += ' VA:'+hex4(self.paddr)
+        #res += ' CYC:%3i' % (self.cyc)
+        #res += ' SL:%d' % self.sl
         return res
 
     def __init__(self, rom):
@@ -346,7 +349,7 @@ class Machine(object):
 
     def run(self):
         self.reset()
-        debug = False
+        debug = False# True
         while True:
             if debug:
                 print hex4(self.pc),
@@ -381,12 +384,15 @@ class Machine(object):
             #should log this
 
     def run_ppu(self):
+    #TODO sprites
+    #TODO sprite 0 hit
+    #TODO move vblank to end/make scanlines correct
         rendering_enabled = (self.pmask & (3 << 3))
         if self.sl < 0:
             if self.cyc == 341:
                 self.pstat |= (1 << 7)
                 if self.pctrl & (1 << 7):
-                    self.push2(self.pc)
+                    self.push2(self.pc) #NMI
                     self.push(self.p)
                     self.pc = self.get_mem(0xfffa) + (self.get_mem(0xfffb) << 8)
         elif self.sl < 20:
@@ -405,21 +411,18 @@ class Machine(object):
                 x = self.cyc
                 y = self.sl - 21
                 self.fineX = (self.fineX + 1) & 0x7
-                #fineX16 = x & 0xf
                 fineY = (self.paddr & 0x7000) >> 12
-                #fineY16 = y & 0xf
                 if self.fineX == 0 and self.x < 256:
                     if self.paddr & 0x1f == 0x1f:
                         self.paddr = self.paddr + 0x400 - 0x1f
                     else:
                         self.paddr += 1
                 # get new nt_byte
-                nt_addr = 0x2000 + (self.paddr & 0xfff)#self.nt_base + (x >> 3) + (y >> 3)*32
+                nt_addr = 0x2000 + (self.paddr & 0xfff)
                 self.at_base = (nt_addr & (~0xfff)) + 0x3c0
                 self.nt_val = self.ppu_get_mem(nt_addr)
                 base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
                 self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
-            #get new at value
                 low = self.ppu_get_mem(self.pt_addr + fineY)
                 hi = self.ppu_get_mem(self.pt_addr + 8 + fineY)
                 low &= (1 << (7-self.fineX))
@@ -427,11 +430,12 @@ class Machine(object):
                 hi &= (1 << (7-self.fineX))
                 hi = 1 if hi else 0
                 color_i = low | (hi << 1)
-                self.at = self.ppu_get_mem(self.at_base + ((nt_addr & 0x3ff)>>2))
-                nt_off = nt_addr & 0x3ff
-                row = nt_off >> 5
-                col = nt_off & 0x1f
-                at_val = self.at >> ((0 if col % 2 == 0 else 4) + (0 if row % 2 == 0 else 2))
+                #get new at value
+                self.at = self.ppu_get_mem(self.at_base + ((nt_addr & 0x3ff)>>4))
+                nt_off = (nt_addr & 0x3ff)
+                row = (nt_off >> 6) & 1
+                col = (nt_off & 0x2) >> 1
+                at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
                 at_val &= 2
                 at_val <<= 2
                 color_i |= at_val
@@ -443,13 +447,16 @@ class Machine(object):
             self.cyc = -1
             self.sl += 1
             if rendering_enabled and self.sl > 20:
+                fineY = (self.paddr & 0x7000) >> 12
+                if fineY == 7:
+                    if self.paddr & 0x3ff >= 0x3c0:
+                        self.paddr |= 0x800
+                    else:
+                        self.paddr += 0x20
                 self.paddr &= ~0x1f
                 self.paddr |= self.taddr & 0x1f
                 self.paddr &= ~(1 << 10) 
                 self.paddr |= self.taddr & (1 << 10)
-                fineY = (self.paddr & 0x7000) >> 12
-                if fineY == 7:
-                    self.paddr += 0x20
                 self.paddr &= ~(0x7000)
                 self.paddr |= ((fineY+1) & 0x7) << 12
                 self.fineX = self.xoff
@@ -466,6 +473,7 @@ class Machine(object):
 
 
     def reset(self):
+    #TODO what is the deal with SMB and megaman? loading probs
         self.s -= 3
         self.s &= 0xff
         self.mem = [0xff] * (0x800)
@@ -474,7 +482,6 @@ class Machine(object):
         self.mem[0x000a] = 0xdf
         self.mem[0x000f] = 0xbf
         self.pc = self.get_mem(0xfffc) + (self.get_mem(0xfffd) << 8)
-        #ppu stuff- PPU DOESN'T TURN OFF WTF
 
     def nop(self, inst):
         pass
@@ -1109,6 +1116,8 @@ class Rom(object):
         else:
             self.trainer = None
         self.prg_rom = map(lambda x: struct.unpack('B', x)[0], f.read(16384 * self.prg_size))
+        print self.prg_size
+        print hex4(len(self.prg_rom))
         self.chr_ram = (self.chr_size == 0)
         if self.chr_ram:
             self.chr_rom = [0xff] * 8192
