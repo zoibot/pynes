@@ -174,7 +174,6 @@ class Machine(object):
                 else:
                     #needs to do some crap, also stil get mem
                     res = self.ppu_get_mem(self.paddr)
-                    print hex4(self.paddr)
                     self.paddr += 32 if self.pctrl & (1 << 2) else 1
                     self.paddr &= 0x3fff
                     return res
@@ -237,7 +236,6 @@ class Machine(object):
                 self.ppu_set_mem(self.paddr, val)
                 self.paddr += 32 if self.pctrl & (1 << 2) else 1
                 self.paddr &= 0x3fff
-            #ppu
         elif addr < 0x4018:
             if addr == 0x4016:
                 if val & 1:
@@ -261,7 +259,7 @@ class Machine(object):
         if addr < 0x2000:
             return self.rom.chr_rom[addr]
         elif addr < 0x3000:
-            if self.rom.flags6 & 1:
+            if not self.rom.flags6 & 1:
                 #horizontal mirroring
                 if addr < 0x2400:
                     return self.ppu_mem[addr]
@@ -285,9 +283,8 @@ class Machine(object):
             return self.ppu_mem[0x3f00 + (addr & 0x1f)]
     def ppu_set_mem(self, addr, val):
         addr &= 0x3fff
-        print 'write '+hex4(addr)
         if addr < 0x3000:
-            if self.rom.flags6 & 1:
+            if not self.rom.flags6 & 1:
                 #horizontal mirroring
                 if addr < 0x2400:
                     self.ppu_mem[addr] = val
@@ -360,8 +357,6 @@ class Machine(object):
             if debug:
                 print hex4(self.pc),
                 print '',
-            if self.pc == 0xa979:
-                self.pc = 0xAAB3
             inst = self.next_inst()
             if debug:
                 print inst,
@@ -744,7 +739,7 @@ class Machine(object):
         self.set_nz(self.a)
  
 class Instruction(object):
-#TODO brk, cli, some illegals
+#TODO brk, some illegals
     '''Class for parsing instructions'''
     opcodes = { 0x01 : ('ora', 'ixid', 6),
                 0x03 : ('slo*', 'ixid', 1),
