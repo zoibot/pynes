@@ -1,101 +1,25 @@
+#python std imports
 import sys
 import struct
+from array import array
 import cProfile
 
+#pygame
 import pygame
 
-def hex2(i):
-    if i > 0xFF:
-        print 'warning, printing larger than 0xff value with hex2'
-        print hex(i)
-    return '%02X' % (i & 0xFF)
-def hex4(i):
-    return '%04X' % (i & 0xFFFF)
-
-colors = [
-0x7C7C7C,
-0x0000FC,
-0x0000BC,
-0x4428BC,
-0x940084,
-0xA80020,
-0xA81000,
-0x881400,
-0x503000,
-0x007800,
-0x006800,
-0x005800,
-0x004058,
-0x000000,
-0x000000,
-0x000000,
-0xBCBCBC,
-0x0078F8,
-0x0058F8,
-0x6844FC,
-0xD800CC,
-0xE40058,
-0xF83800,
-0xE45C10,
-0xAC7C00,
-0x00B800,
-0x00A800,
-0x00A844,
-0x008888,
-0x000000,
-0x000000,
-0x000000,
-0xF8F8F8,
-0x3CBCFC,
-0x6888FC,
-0x9878F8,
-0xF878F8,
-0xF85898,
-0xF87858,
-0xFCA044,
-0xF8B800,
-0xB8F818,
-0x58D854,
-0x58F898,
-0x00E8D8,
-0x787878,
-0x000000,
-0x000000,
-0xFCFCFC,
-0xA4E4FC,
-0xB8B8F8,
-0xD8B8F8,
-0xF8B8F8,
-0xF8A4C0,
-0xF0D0B0,
-0xFCE0A8,
-0xF8D878,
-0xD8F878,
-0xB8F8B8,
-0xB8F8D8,
-0x00FCFC,
-0xF8D8F8,
-0x000000,
-0x000000
-]
-
-keymap = {pygame.K_LEFT: 6,
-    pygame.K_RIGHT: 7,
-    pygame.K_UP: 4,
-    pygame.K_DOWN: 5,
-    pygame.K_x: 1,
-    pygame.K_z: 0,
-    pygame.K_RETURN: 3,
-    pygame.K_s: 2}
+#emu imports
+import ppu
+import cpu
+from util import *
 
 class Sprite(object):
-    def __init__(self, data, index):
+    def __init__(self, index):
+        self.index = index
+    def update(self, data):
         self.y = data[0]
         self.tile = data[1]
         self.attrs = data[2]
         self.x = data[3]
-        self.index = index
-
 
 class Machine(object):
     '''Class for actually simulating the machine'''
@@ -115,9 +39,6 @@ class Machine(object):
     pmask = 0
     pstat = 0b10100000
     oamaddr = 0
-    p5 = 0
-    p6 = 0
-    scroll_x = scroll_y = 0
     platch = False
     paddr = 0
     taddr = 0
@@ -129,9 +50,15 @@ class Machine(object):
     ppu_cycles = 0
     frame_count = 0
     obj_mem = [0]
-    objs = []
-    nt_base = 0x2000
+    objs = [Sprite(i) for i in range(64)]
+    cur_objs = []
+    nt_addr = 0
+    nt_val = 0
     at_base = 0x23c0
+    at_val = 0
+#APU
+    seq_mode = 0
+    frame_irq = 0
 #input
     read_input_state = 8
     keys = [0] * 8
@@ -187,8 +114,6 @@ class Machine(object):
         elif addr < 0x4018:
             if addr == 0x4016:
                 if self.read_input_state < 8:
-                    print 'reading input ', self.read_input_state,
-                    print self.keys[self.read_input_state]
                     self.read_input_state += 1
                     return self.keys[self.read_input_state-1]
                 else:
@@ -215,6 +140,7 @@ class Machine(object):
                 self.oamaddr = val
             elif i == 4:
                 self.obj_mem[self.oamaddr] = val
+                self.update_sprites()
                 self.oamaddr += 1
                 self.oamaddr &= 0xff
             elif i == 5:
@@ -254,6 +180,7 @@ class Machine(object):
                 start = val << 8
                 end = start + 0x100
                 self.obj_mem = self.mem[start:end]
+                self.update_sprites()
 
             pass # input / ALU
         elif addr < 0x8000:
@@ -261,28 +188,30 @@ class Machine(object):
         else:
             pass
 
+    def _horiz_mirror(self, addr):
+        #horizontal mirroring
+        if addr < 0x2400:
+            return addr
+        elif addr < 0x2800:
+            return addr - 0x400
+        elif addr < 0x2C00:
+            return addr
+        else:
+            return addr - 0x400
+    def _vert_mirror(self, addr):
+       #vertical mirroring
+        return addr & (~0x800)
+        if addr < 0x2800:
+            return addr
+        else:
+            return addr - 0x800
+
     def ppu_get_mem(self, addr):
         addr &= 0x3fff
         if addr < 0x2000:
             return self.rom.chr_rom[addr]
         elif addr < 0x3000:
-            if not self.rom.flags6 & 1:
-                #horizontal mirroring
-                if addr < 0x2400:
-                    return self.ppu_mem[addr]
-                elif addr < 0x2800:
-                    return self.ppu_mem[addr - 0x400]
-                elif addr < 0x2C00:
-                    return self.ppu_mem[addr]
-                else:
-                    return self.ppu_mem[addr - 0x400]
-            else:
-                #vertical mirroring
-                if addr < 0x2800:
-                    return self.ppu_mem[addr]
-                else:
-                    return self.ppu_mem[addr - 0x800]
- 
+            return self.ppu_mem[self.mirroring(addr)]
         elif addr < 0x3f00:
             return self.ppu_get_mem(addr - 0x1000)
         else:
@@ -291,22 +220,7 @@ class Machine(object):
     def ppu_set_mem(self, addr, val):
         addr &= 0x3fff
         if addr < 0x3000:
-            if not self.rom.flags6 & 1:
-                #horizontal mirroring
-                if addr < 0x2400:
-                    self.ppu_mem[addr] = val
-                elif addr < 0x2800:
-                    self.ppu_mem[addr - 0x400] = val
-                elif addr < 0x2C00:
-                    self.ppu_mem[addr] = val
-                else:
-                    self.ppu_mem[addr - 0x400] = val
-            else:
-                #vertical mirroring
-                if addr < 0x2800:
-                    self.ppu_mem[addr] = val
-                else:
-                    self.ppu_mem[addr - 0x800] = val
+            self.ppu_mem[self.mirroring(addr)] = val
         elif addr < 0x3f00:
             self.ppu_set_mem(addr- 0x1000, val)
         else: 
@@ -342,20 +256,24 @@ class Machine(object):
         res += ' P:'+hex2(self.p)
         res += ' SP:'+hex2(self.s)
         res += ' VA:'+hex4(self.paddr)
-        #res += ' CYC:%3i' % (self.cyc)
-        #res += ' SL:%d' % self.sl
         return res
 
     def __init__(self, rom):
         self.rom = rom
         pygame.display.init()
         self.surface = pygame.display.set_mode((256,240))
+        pygame.display.set_caption('6502! '+sys.argv[1], '6502')
         print 'surface bit ' + str(self.surface.get_bitsize())
         self.pixels = pygame.surfarray.pixels2d(self.surface)
-        self.mem = [0xff] * (0x800)
+        self.clock = pygame.time.Clock()
+        self.mem = array('B')
+        self.mem.fromlist([0xff] * (0x800))
         #ppu stuff
-        self.ppu_mem = [0xff] * (0x4000)
-        self.obj_mem = [0xff] * (0x100)
+        self.ppu_mem = array('B')
+        self.ppu_mem.fromlist([0xff] * (0x4000))
+        self.obj_mem = array('B')
+        self.obj_mem.fromlist([0xff] * (0x100))
+        self.mirroring = self._vert_mirror if self.rom.flags6 & 1 else self._horiz_mirror
 
     def run(self):
         self.reset()
@@ -371,17 +289,16 @@ class Machine(object):
                 print self.dump_regs()
             self.execute(inst)
             self.cycle_count += inst.cycles
-            while self.ppu_cycles < self.cycle_count * 3:
-                self.run_ppu()
-                self.ppu_cycles += 1
+            #self.run_ppu(inst.cycles * 3)
+            self.run_ppu_prime()
 
     def next_inst(self):
         self.prev_pc = self.pc
         op = self.get_mem(self.pc)
         inst = Instruction(op)
         self.pc += 1
-        inst.parse_operand([self.get_mem(a) for a in range(self.pc, self.pc+2)], self)
-        self.pc += inst.addr_len
+        inst.parse_operand([self.get_mem(a) for a in xrange(self.pc, self.pc+2)], self)
+        self.pc += inst.addr_len 
         return inst
         
     def execute(self, inst):
@@ -393,132 +310,159 @@ class Machine(object):
             sys.exit(1)
             #should log this
 
-    def run_ppu(self):
-    #TODO sprites
-    #TODO sprite 0 hit
-    #TODO move vblank to end/make scanlines correct
-    #TODO differentiate between bg enabled/sprites enabled
-        rendering_enabled = (self.pmask & (3 << 3))
-        if self.sl < 0:
-            if self.cyc == 341:
-                self.pstat |= (1 << 7)
-                if self.pctrl & (1 << 7):
-                    self.push2(self.pc) #NMI
-                    self.push(self.p)
-                    self.pc = self.get_mem(0xfffa) + (self.get_mem(0xfffb) << 8)
-        elif self.sl < 20:
-            pass # vblank
-        elif self.sl == 20:
-            #start reading
-            if rendering_enabled and self.cyc == 341:
-                self.pstat &= ~(1 << 7)
-                self.paddr = self.taddr
-                self.fineX = self.xoff
-                self.cyc = -1
-                self.sl += 1
-                print 'base' + hex4(self.paddr)
-        else:
-            if rendering_enabled and self.cyc < 256:
-                x = self.cyc
-                y = self.sl - 21
-                self.fineX = (self.fineX + 1) & 0x7
-                fineY = (self.paddr & 0x7000) >> 12
-                if self.fineX == 0 and self.x < 256:
-                    if self.paddr & 0x1f == 0x1f:
-                        self.paddr = self.paddr + 0x400 - 0x1f
-                    else:
-                        self.paddr += 1
-                cur_spr = None
-                for sprite in reversed(self.objs):
-                    if x <= sprite.x < x + 8:
-                        cur_spr = sprite
-                color, trans = self.get_nt_color(self.fineX, fineY)
-                if cur_spr and (trans or cur_spr.attrs & (1 << 5)):
-                    color = self.get_sprite_color(cur_spr, x, y)
-                if x < 256:
-                    if color < len(colors):
-                        self.pixels[x,y] = colors[color]
-        if self.cyc == 341:
-            self.cyc = -1
-            self.sl += 1
-            if rendering_enabled and self.sl > 20:
-                fineY = (self.paddr & 0x7000) >> 12
-                if fineY == 7:
-                    if self.paddr & 0x3ff >= 0x3c0:
-                        self.paddr |= 0x800
-                    else:
-                        self.paddr += 0x20
-                self.paddr &= ~0x1f
-                self.paddr |= self.taddr & 0x1f
-                self.paddr &= ~(1 << 10) 
-                self.paddr |= self.taddr & (1 << 10)
-                self.paddr &= ~(0x7000)
-                self.paddr |= ((fineY+1) & 0x7) << 12
-                self.fineX = self.xoff
-                self.objs = []
-                for obj_index in range(0, 64*4, 4):
-                    y = self.obj_mem[obj_index]
-                    if y+1 <= self.sl <= y+8:
-                        self.objs += [Sprite(self.obj_mem[obj_index:obj_index+4], obj_index)]
-                if len(self.objs) > 8:
-                    self.pstat |= 1 << 5
+    def run_ppu_prime(self):
+        bg_enabled = self.pmask & (1 << 3)
+        sprite_enabled = self.pmask & (1 << 4)
+        rendering_enabled = bg_enabled or sprite_enabled
+        cycles = self.cycle_count * 3 - self.ppu_cycles
+        while self.ppu_cycles < self.cycle_count * 3:
+            if self.sl < 0:
+                if 341 - self.cyc > cycles:
+                    self.cyc += cycles
+                    self.ppu_cycles += cycles
                 else:
-                    self.pstat &= ~(1 << 5)
-        if self.sl == 260:
-            self.sl = -1
-            self.surface.unlock()
-            pygame.display.flip()
-            self.surface.fill(0x0)
-            self.surface.lock()
-            pygame.event.pump()
-            print 'frame ', self.frame_count
-            self.frame_count += 1
-        self.cyc += 1
-
-    def get_nt_color(self, fineX, fineY):
-        # get new nt_byte
-        nt_addr = 0x2000 + (self.paddr & 0xfff)
-        self.at_base = (nt_addr & (~0xfff)) + 0x3c0
-        self.nt_val = self.ppu_get_mem(nt_addr)
-        base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
-        self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
+                    self.ppu_cycles += 341 - self.cyc
+                    self.cyc = 0
+                    self.sl += 1
+                    self.pstat &= ~(1 << 7)
+                    self.pstat &= ~(1 << 6)
+                    if rendering_enabled:
+                        self.paddr = self.taddr
+                        self.fineX = self.xoff
+            elif self.sl < 240:
+                if 341 - self.cyc > cycles:
+                    todo = cycles
+                else:
+                    todo = 341 - self.cyc
+                y = self.sl
+                fineY = (self.paddr & 0x7000) >> 12
+                for x in range(self.cyc, self.cyc + todo):
+                    if x < 256 and rendering_enabled:
+                        color = self.ppu_get_mem(0x3f00)
+                        if bg_enabled:
+                            color, bg_trans = self.get_nt_color(fineY)
+                        if sprite_enabled:
+                            cur_spr = None
+                            for sprite in self.cur_objs:
+                                if sprite.x <= x < sprite.x + 8:
+                                    cur_spr = sprite
+                            if cur_spr and (bg_trans or (not (cur_spr.attrs & (1 << 5))) or not bg_enabled):
+                                col = self.get_sprite_color(cur_spr, x, y)
+                                if col is not None:
+                                    if cur_spr.index == 0 and not bg_trans:
+                                        self.pstat |= 1 << 6 #spr 0 hit
+                                    color = col
+                        try:
+                            self.pixels[x,y] = colors[color]
+                        except:
+                            print 'something broke'
+                        self.fineX = (self.fineX + 1) & 7
+                        if self.fineX == 0:
+                            #TODO this isn't quite right, should be at beginning perhaps?
+                            #sometimes advances to next line when it shouldn't
+                            if self.paddr & 0x1f == 0x1f:
+                                self.paddr |= 0x400
+                                self.paddr -= 0x1f
+                            else:
+                                self.paddr += 1
+                self.cyc += todo
+                self.ppu_cycles += todo
+                if self.cyc == 341:
+                    self.cyc = 0
+                    self.sl += 1
+                    if rendering_enabled:
+                        fineY = (self.paddr & 0x7000) >> 12
+                        if fineY == 7:
+                            if self.paddr & 0x3ff >= 0x3c0:
+                                self.paddr |= 0x800
+                            self.paddr += 0x20
+                        self.paddr &= ~0x1f
+                        self.paddr |= self.taddr & 0x1f
+                        self.paddr &= ~(1 << 10) 
+                        self.paddr |= self.taddr & (1 << 10)
+                        self.paddr &= ~(0x7000)
+                        self.paddr |= ((fineY+1) & 0x7) << 12
+                        self.fineX = self.xoff
+                        self.cur_objs = []
+                        if sprite_enabled:
+                            self.cur_objs = [s for s in self.objs if self.sl-1 in xrange(s.y, s.y+8)]
+            elif self.sl == 240:
+                if 341 - self.cyc > cycles:
+                    self.cyc += cycles
+                    self.ppu_cycles += cycles
+                else:
+                    self.ppu_cycles += 341 - self.cyc
+                    self.cyc = 0
+                    self.sl += 1
+                    self.pstat |= (1 << 7)
+                    if self.pctrl & (1 << 7):
+                        self.nmi(0xfffa)
+            elif self.sl < 261:
+                self.ppu_cycles += 341
+                self.sl += 1
+            elif self.sl == 261:
+                self.ppu_cycles += 341
+                self.sl = -1
+                self.surface.unlock()
+                pygame.display.flip()
+                self.surface.fill(0x0)
+                self.surface.lock()
+                pygame.event.pump()
+                self.clock.tick()
+                print 'frame ', self.frame_count
+                print self.clock.get_fps()
+                self.frame_count += 1
+                
+    def get_nt_color(self, fineY):
+        new_nt_addr = 0x2000 + (self.paddr & 0xfff)
+        if self.nt_addr != new_nt_addr:
+            # get new nt_byte
+            self.nt_addr = new_nt_addr
+            self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
+            self.nt_val = self.ppu_get_mem(self.nt_addr)
+            base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
+            self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
+            #get new at val
+            self.at = self.ppu_get_mem(self.at_base + ((self.nt_addr & 0x3ff)>>4))
+            nt_off = (self.nt_addr & 0x3ff)
+            row = (nt_off >> 6) & 1
+            col = (nt_off & 0x2) >> 1
+            self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
+            self.at_val &= 2
+            self.at_val <<= 2
         low = self.ppu_get_mem(self.pt_addr + fineY)
         hi = self.ppu_get_mem(self.pt_addr + 8 + fineY)
-        low &= (1 << (7-self.fineX))
-        low = 1 if low else 0
-        hi &= (1 << (7-self.fineX))
-        hi = 1 if hi else 0
-        color_i = low | (hi << 1)
-        #get new at value
-        self.at = self.ppu_get_mem(self.at_base + ((nt_addr & 0x3ff)>>4))
-        nt_off = (nt_addr & 0x3ff)
-        row = (nt_off >> 6) & 1
-        col = (nt_off & 0x2) >> 1
-        at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
-        at_val &= 2
-        at_val <<= 2
-        color_i |= at_val
+        color_i = ((low >> (7-self.fineX)) & 1) | (((hi >> (7-self.fineX)) & 1) << 1)
+        color_i |= self.at_val
         if color_i & 3:
             color = self.ppu_get_mem(0x3f00 + color_i)
         else:
             color = self.ppu_get_mem(0x3f00)
         return color, (color_i & 3)
+
     def get_sprite_color(self, sprite, x, y):
         palette = sprite.attrs & 3
         xoff = x - sprite.x
-        yoff = y - sprite.y + 1
-        base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
-        self.pt_addr = (sprite.tile * 0x10) + base_pt_addr
-        low = self.ppu_get_mem(self.pt_addr + yoff)
-        hi = self.ppu_get_mem(self.pt_addr + 8 + yoff)
+        yoff = y - sprite.y - 1
+        base_pt_addr = 0x1000 if (self.pctrl & (1 << 3)) else 0
+        pt_addr = (sprite.tile * 0x10) + base_pt_addr
+        low = self.ppu_get_mem(pt_addr + yoff)
+        hi = self.ppu_get_mem(pt_addr + 8 + yoff)
         low &= (1 << (7-xoff))
         low = 1 if low else 0
         hi &= (1 << (7-xoff))
         hi = 1 if hi else 0
         color_i = low | (hi << 1)
+        if not color_i:
+            return None
         color_i |= palette << 2
         color_i |= 1 << 4
         return self.ppu_get_mem(0x3f00 + color_i)
+
+    def update_sprites(self):
+        for spr in self.objs:
+            index = spr.index * 4
+            spr.update(self.obj_mem[index:index+4])
  
     def reset(self):
     #TODO what is the deal with megaman? loading probs
@@ -531,6 +475,11 @@ class Machine(object):
         self.mem[0x000f] = 0xbf
         self.pc = self.get_mem(0xfffc) + (self.get_mem(0xfffd) << 8)
 
+    def nmi(self, addr):
+        self.push2(self.pc)
+        self.push(self.p)
+        self.pc = self.get_mem(addr) + (self.get_mem(addr+1) << 8)
+ 
     def nop(self, inst):
         pass
 
@@ -544,6 +493,9 @@ class Machine(object):
     def rti(self, inst):
         self.p = (self.pop() | (1 << 5)) & ~(self.flags['B'])
         self.pc = self.pop2()
+    def brk(self, inst):
+        self.pc += 1
+        self.nmi(0xfffe)
 
     def branch(self, bool, inst):
         if bool:
@@ -783,7 +735,8 @@ class Machine(object):
 class Instruction(object):
 #TODO brk, some illegals
     '''Class for parsing instructions'''
-    opcodes = { 0x01 : ('ora', 'ixid', 6),
+    opcodes = { 0x00 : ('brk', 'imp', 7),
+                0x01 : ('ora', 'ixid', 6),
                 0x03 : ('slo*', 'ixid', 1),
                 0x04 : ('nop*', 'zp', 1),
                 0x05 : ('ora', 'zp', 2),
@@ -1109,7 +1062,7 @@ class Instruction(object):
         #TODO rewrite
         rep = ''
         rep += hex2(self.opcode) + ' '
-        rep += ''.join(hex2(self.args[i]) + ' ' for i in range(self.addr_len)) + ''.join('   ' for i in range(2-self.addr_len)) 
+        rep += ''.join(hex2(self.args[i]) + ' ' for i in xrange(self.addr_len)) + ''.join('   ' for i in xrange(2-self.addr_len)) 
         if self.illegal:
             rep += '*'
         else:
@@ -1163,19 +1116,22 @@ class Rom(object):
             self.trainer = f.read(512)
         else:
             self.trainer = None
-        self.prg_rom = map(lambda x: struct.unpack('B', x)[0], f.read(16384 * self.prg_size))
+        self.prg_rom = array('B')
+        self.prg_rom.fromfile(f, 16384 * self.prg_size)
         print self.prg_size
         print hex4(len(self.prg_rom))
         self.chr_ram = (self.chr_size == 0)
+        self.chr_rom = array('B')
         if self.chr_ram:
-            self.chr_rom = [0xff] * 8192
+            self.chr_rom.fromlist([0xff] * 8192)
         else:
-            self.chr_rom = map(lambda x: struct.unpack('B', x)[0], f.read(8192 * self.chr_size))
-        self.prg_ram = [0xff] * (8192 * 1 if not self.prg_ram_size else self.prg_ram_size)
+            self.chr_rom.fromfile(f, (8192 * self.chr_size))
+        self.prg_ram = array('B')
+        self.prg_ram.fromlist([0xff] * (8192 * 1 if not self.prg_ram_size else self.prg_ram_size))
 
 
 filename = sys.argv[1]
 rom = Rom(open(filename))
 mach = Machine(rom)
-#cProfile.run('mach.run()')
-mach.run()
+cProfile.run('mach.run()', 'prof')
+#mach.run()
