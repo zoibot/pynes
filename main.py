@@ -280,7 +280,7 @@ class Machine(object):
         self.mirroring = self._vert_mirror if self.rom.flags6 & 1 else self._horiz_mirror
 
     def run(self):
-        cycs = 0
+        self.reset()
         debug = False# True
         while True:
             #if debug:
