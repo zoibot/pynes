@@ -32,6 +32,7 @@ class Machine(object):
     x = y = 0
     mem = [0]
     cycle_count = 0
+    inst = None
 #PPU
     sl = -1
     cyc = 0
@@ -56,6 +57,7 @@ class Machine(object):
     nt_val = 0
     at_base = 0x23c0
     at_val = 0
+    ppu_flag = False
 #APU
     seq_mode = 0
     frame_irq = 0
@@ -129,6 +131,7 @@ class Machine(object):
         if addr < 0x2000:
             self.mem[(addr) & 0x7ff] = val
         elif addr < 0x4000:
+            self.ppu_flag = True
             i = (addr - 0x2000) & 0x7
             if i == 0:
                 self.pctrl = val
@@ -268,6 +271,7 @@ class Machine(object):
         self.clock = pygame.time.Clock()
         self.mem = array('B')
         self.mem.fromlist([0xff] * (0x800))
+        self.inst = Instruction()
         #ppu stuff
         self.ppu_mem = array('B')
         self.ppu_mem.fromlist([0xff] * (0x4000))
@@ -276,30 +280,28 @@ class Machine(object):
         self.mirroring = self._vert_mirror if self.rom.flags6 & 1 else self._horiz_mirror
 
     def run(self):
-        self.reset()
+        cycs = 0
         debug = False# True
         while True:
-            if debug:
-                print hex4(self.pc),
-                print '',
-            inst = self.next_inst()
-            if debug:
-                print inst,
-                print '  ',
-                print self.dump_regs()
-            self.execute(inst)
-            self.cycle_count += inst.cycles
-            #self.run_ppu(inst.cycles * 3)
+            #if debug:
+            #    print hex4(self.pc),
+            #    print '',
+            self.next_inst()
+            #if debug:
+            #    print self.inst,
+            #    print '  ',
+            #    print self.dump_regs()
+            self.execute(self.inst)
+            self.cycle_count += self.inst.cycles
             self.run_ppu_prime()
 
     def next_inst(self):
         self.prev_pc = self.pc
         op = self.get_mem(self.pc)
-        inst = Instruction(op)
+        self.inst.read(op)
         self.pc += 1
-        inst.parse_operand([self.get_mem(a) for a in xrange(self.pc, self.pc+2)], self)
-        self.pc += inst.addr_len 
-        return inst
+        self.inst.parse_operand([self.get_mem(a) for a in xrange(self.pc, self.pc+2)], self)
+        self.pc += self.inst.addr_len 
         
     def execute(self, inst):
         try:
@@ -336,11 +338,11 @@ class Machine(object):
                     todo = 341 - self.cyc
                 y = self.sl
                 fineY = (self.paddr & 0x7000) >> 12
-                for x in range(self.cyc, self.cyc + todo):
+                for x in xrange(self.cyc, self.cyc + todo):
                     if x < 256 and rendering_enabled:
                         color = self.ppu_get_mem(0x3f00)
                         if bg_enabled:
-                            color, bg_trans = self.get_nt_color(fineY)
+                            color, bg_trans = self.get_nt_color()
                         if sprite_enabled:
                             cur_spr = None
                             for sprite in self.cur_objs:
@@ -358,8 +360,6 @@ class Machine(object):
                             print 'something broke'
                         self.fineX = (self.fineX + 1) & 7
                         if self.fineX == 0:
-                            #TODO this isn't quite right, should be at beginning perhaps?
-                            #sometimes advances to next line when it shouldn't
                             if self.paddr & 0x1f == 0x1f:
                                 self.paddr |= 0x400
                                 self.paddr -= 0x1f
@@ -413,11 +413,13 @@ class Machine(object):
                 print self.clock.get_fps()
                 self.frame_count += 1
                 
-    def get_nt_color(self, fineY):
+    def get_nt_color(self):
+        fineY = (self.paddr >> 12) & 7
         new_nt_addr = 0x2000 + (self.paddr & 0xfff)
         if self.nt_addr != new_nt_addr:
             # get new nt_byte
             self.nt_addr = new_nt_addr
+            #have a mapping here??
             self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
             self.nt_val = self.ppu_get_mem(self.nt_addr)
             base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
@@ -427,12 +429,13 @@ class Machine(object):
             nt_off = (self.nt_addr & 0x3ff)
             row = (nt_off >> 6) & 1
             col = (nt_off & 0x2) >> 1
+            #have a mapping here??
             self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
             self.at_val &= 2
             self.at_val <<= 2
-        low = self.ppu_get_mem(self.pt_addr + fineY)
-        hi = self.ppu_get_mem(self.pt_addr + 8 + fineY)
-        color_i = ((low >> (7-self.fineX)) & 1) | (((hi >> (7-self.fineX)) & 1) << 1)
+            self.low = self.ppu_get_mem(self.pt_addr + fineY)
+            self.hi = self.ppu_get_mem(self.pt_addr + 8 + fineY) 
+        color_i = ((self.low >> (7-self.fineX)) & 1) | (((self.hi >> (7-self.fineX)) & 1) << 1)
         color_i |= self.at_val
         if color_i & 3:
             color = self.ppu_get_mem(0x3f00 + color_i)
@@ -966,7 +969,9 @@ class Instruction(object):
     opcode = 0x00 
     addr_mode = ''
     operand = 0
-    def __init__(self, op):
+    def __init__(self):
+        pass
+    def read(self, op):
         self.opcode = op
         self.illegal = False
         try:
