@@ -53,11 +53,13 @@ class Machine(object):
     obj_mem = [0]
     objs = [Sprite(i) for i in range(64)]
     cur_objs = []
+    spr_map = [None] * 256
     nt_addr = 0
     nt_val = 0
     at_base = 0x23c0
     at_val = 0
     ppu_flag = False
+    patterns = {}
 #APU
     seq_mode = 0
     frame_irq = 0
@@ -277,7 +279,18 @@ class Machine(object):
         self.ppu_mem.fromlist([0xff] * (0x4000))
         self.obj_mem = array('B')
         self.obj_mem.fromlist([0xff] * (0x100))
+        self.process_patterns()
         self.mirroring = self._vert_mirror if self.rom.flags6 & 1 else self._horiz_mirror
+
+    def process_patterns(self):
+        for i in xrange(0,0x2000,16):
+            self.update_pattern(i)
+    def update_pattern(self,addr):
+        for y in xrange(8):
+            lo = self.rom.chr_rom[addr + y]
+            hi = self.rom.chr_rom[addr + y + 8]
+            for x in xrange(8):
+                self.patterns[addr,(x,y)] = ((lo >> (7-x)) & 1) | (((hi >> (7-x)) & 1) << 1)
 
     def run(self):
         self.reset()
@@ -319,18 +332,7 @@ class Machine(object):
         cycles = self.cycle_count * 3 - self.ppu_cycles
         while self.ppu_cycles < self.cycle_count * 3:
             if self.sl < 0:
-                if 341 - self.cyc > cycles:
-                    self.cyc += cycles
-                    self.ppu_cycles += cycles
-                else:
-                    self.ppu_cycles += 341 - self.cyc
-                    self.cyc = 0
-                    self.sl += 1
-                    self.pstat &= ~(1 << 7)
-                    self.pstat &= ~(1 << 6)
-                    if rendering_enabled:
-                        self.paddr = self.taddr
-                        self.fineX = self.xoff
+                self.do_vblank(rendering_enabled)
             elif self.sl < 240:
                 if 341 - self.cyc > cycles:
                     todo = cycles
@@ -338,54 +340,17 @@ class Machine(object):
                     todo = 341 - self.cyc
                 y = self.sl
                 fineY = (self.paddr & 0x7000) >> 12
-                for x in xrange(self.cyc, self.cyc + todo):
-                    if x < 256 and rendering_enabled:
-                        color = self.ppu_get_mem(0x3f00)
-                        if bg_enabled:
-                            color, bg_trans = self.get_nt_color()
-                        if sprite_enabled:
-                            cur_spr = None
-                            for sprite in self.cur_objs:
-                                if sprite.x <= x < sprite.x + 8:
-                                    cur_spr = sprite
-                            if cur_spr and (bg_trans or (not (cur_spr.attrs & (1 << 5))) or not bg_enabled):
-                                col = self.get_sprite_color(cur_spr, x, y)
-                                if col is not None:
-                                    if cur_spr.index == 0 and not bg_trans:
-                                        self.pstat |= 1 << 6 #spr 0 hit
-                                    color = col
-                        try:
-                            self.pixels[x,y] = colors[color]
-                        except:
-                            print 'something broke'
-                        self.fineX = (self.fineX + 1) & 7
-                        if self.fineX == 0:
-                            if self.paddr & 0x1f == 0x1f:
-                                self.paddr |= 0x400
-                                self.paddr -= 0x1f
-                            else:
-                                self.paddr += 1
+                color = self.ppu_get_mem(0x3f00)
+                for x in xrange(self.cyc, min(self.cyc + todo, 256)):
+                    if rendering_enabled:
+                        self.render_pixel(x, y)
                 self.cyc += todo
                 self.ppu_cycles += todo
                 if self.cyc == 341:
                     self.cyc = 0
                     self.sl += 1
                     if rendering_enabled:
-                        fineY = (self.paddr & 0x7000) >> 12
-                        if fineY == 7:
-                            if self.paddr & 0x3ff >= 0x3c0:
-                                self.paddr |= 0x800
-                            self.paddr += 0x20
-                        self.paddr &= ~0x1f
-                        self.paddr |= self.taddr & 0x1f
-                        self.paddr &= ~(1 << 10) 
-                        self.paddr |= self.taddr & (1 << 10)
-                        self.paddr &= ~(0x7000)
-                        self.paddr |= ((fineY+1) & 0x7) << 12
-                        self.fineX = self.xoff
-                        self.cur_objs = []
-                        if sprite_enabled:
-                            self.cur_objs = [s for s in self.objs if self.sl-1 in xrange(s.y, s.y+8)]
+                        self.new_scanline()
             elif self.sl == 240:
                 if 341 - self.cyc > cycles:
                     self.cyc += cycles
@@ -401,18 +366,80 @@ class Machine(object):
                 self.ppu_cycles += 341
                 self.sl += 1
             elif self.sl == 261:
-                self.ppu_cycles += 341
-                self.sl = -1
-                self.surface.unlock()
-                pygame.display.flip()
-                self.surface.fill(0x0)
-                self.surface.lock()
-                pygame.event.pump()
-                self.clock.tick()
-                print 'frame ', self.frame_count
-                print self.clock.get_fps()
-                self.frame_count += 1
-                
+                self.draw_frame()
+
+    def do_vblank(self, rendering_enabled):
+        cycles = self.cycle_count * 3 - self.ppu_cycles
+        if 341 - self.cyc > cycles:
+            self.cyc += cycles
+            self.ppu_cycles += cycles
+        else:
+            self.ppu_cycles += 341 - self.cyc
+            self.cyc = 0
+            self.sl += 1
+            self.pstat &= ~(1 << 7)
+            self.pstat &= ~(1 << 6)
+            if rendering_enabled:
+                self.paddr = self.taddr
+                self.fineX = self.xoff
+
+    def draw_frame(self):
+        self.ppu_cycles += 341
+        self.sl = -1
+        self.surface.unlock()
+        pygame.display.flip()
+        self.surface.fill(0x0)
+        self.surface.lock()
+        pygame.event.pump()
+        self.clock.tick()
+        print 'frame ', self.frame_count
+        print self.clock.get_fps()
+        self.frame_count += 1
+
+    def render_pixel(self, x, y):
+        if self.pmask & 0x8:
+            color = self.get_nt_color()
+        if self.pmask & 0x10:
+            cur_spr = self.spr_map[x]
+            if cur_spr:
+                spr_color = self.get_sprite_color(cur_spr, x, y)
+                if cur_spr.index == 0 and color is not None:
+                    self.pstat |= 1 << 6 #spr 0 hit
+                if (color is None or (not (cur_spr.attrs & (1 << 5)))):
+                    if spr_color:
+                        color = spr_color
+        color = self.ppu_mem[0x3f00] if not color else color
+        try:
+            self.pixels[x,y] = colors[color]
+        except:
+            print 'something broke'
+        self.fineX = (self.fineX + 1) & 7
+        if not self.fineX:
+            if self.paddr & 0x1f == 0x1f:
+                self.paddr |= 0x400
+                self.paddr -= 0x1f
+            else:
+                self.paddr += 1
+
+    def new_scanline(self):
+        fineY = (self.paddr & 0x7000) >> 12
+        if fineY == 7:
+            if self.paddr & 0x3ff >= 0x3c0:
+                self.paddr |= 0x800
+            self.paddr += 0x20
+        self.paddr &= ~0x1f
+        self.paddr |= self.taddr & 0x1f
+        self.paddr &= ~(1 << 10) 
+        self.paddr |= self.taddr & (1 << 10)
+        self.paddr &= ~(0x7000)
+        self.paddr |= ((fineY+1) & 0x7) << 12
+        self.fineX = self.xoff
+        self.cur_objs = [s for s in self.objs if self.sl-1 in xrange(s.y, s.y+8)]
+        self.spr_map = [None] * 256
+        for spr in self.cur_objs:
+            for x in xrange(s.x, s.x+8):
+                self.spr_map[x] = spr
+
     def get_nt_color(self):
         fineY = (self.paddr >> 12) & 7
         new_nt_addr = 0x2000 + (self.paddr & 0xfff)
@@ -433,15 +460,16 @@ class Machine(object):
             self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
             self.at_val &= 2
             self.at_val <<= 2
-            self.low = self.ppu_get_mem(self.pt_addr + fineY)
-            self.hi = self.ppu_get_mem(self.pt_addr + 8 + fineY) 
-        color_i = ((self.low >> (7-self.fineX)) & 1) | (((self.hi >> (7-self.fineX)) & 1) << 1)
-        color_i |= self.at_val
+            #self.low = self.ppu_get_mem(self.pt_addr + fineY)
+            #self.hi = self.ppu_get_mem(self.pt_addr + 8 + fineY) 
+        color_i = self.patterns[self.pt_addr,(self.fineX, fineY)]
+        #((self.low >> (7-self.fineX)) & 1) | (((self.hi >> (7-self.fineX)) & 1) << 1)
         if color_i & 3:
+            color_i |= self.at_val
             color = self.ppu_get_mem(0x3f00 + color_i)
         else:
-            color = self.ppu_get_mem(0x3f00)
-        return color, (color_i & 3)
+            color = None
+        return color
 
     def get_sprite_color(self, sprite, x, y):
         palette = sprite.attrs & 3
