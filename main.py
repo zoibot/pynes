@@ -3,6 +3,7 @@ import sys
 import struct
 from array import array
 import cProfile
+import copy
 
 #pygame
 import pygame
@@ -266,7 +267,7 @@ class Machine(object):
     def __init__(self, rom):
         self.rom = rom
         pygame.display.init()
-        self.surface = pygame.display.set_mode((256,240))
+        self.surface = pygame.display.set_mode((256,240), pygame.DOUBLEBUF)
         pygame.display.set_caption('6502! '+sys.argv[1], '6502')
         print 'surface bit ' + str(self.surface.get_bitsize())
         self.pixels = pygame.surfarray.pixels2d(self.surface)
@@ -326,6 +327,8 @@ class Machine(object):
             #should log this
 
     def run_ppu_prime(self):
+        if self.ppu_cycles >= self.cycle_count * 3:
+            return
         bg_enabled = self.pmask & (1 << 3)
         sprite_enabled = self.pmask & (1 << 4)
         rendering_enabled = bg_enabled or sprite_enabled
@@ -362,10 +365,8 @@ class Machine(object):
                     self.pstat |= (1 << 7)
                     if self.pctrl & (1 << 7):
                         self.nmi(0xfffa)
-            elif self.sl < 261:
-                self.ppu_cycles += 341
-                self.sl += 1
-            elif self.sl == 261:
+            else:
+                self.ppu_cycles += 341 * 21
                 self.draw_frame()
 
     def do_vblank(self, rendering_enabled):
@@ -408,11 +409,11 @@ class Machine(object):
                 if (color is None or (not (cur_spr.attrs & (1 << 5)))):
                     if spr_color:
                         color = spr_color
-        color = self.ppu_mem[0x3f00] if not color else color
-        try:
-            self.pixels[x,y] = colors[color]
-        except:
-            print 'something broke'
+        if color:
+            try:
+                self.pixels[x,y] = colors[color]
+            except:
+                print 'something broke'
         self.fineX = (self.fineX + 1) & 7
         if not self.fineX:
             if self.paddr & 0x1f == 0x1f:
@@ -437,7 +438,7 @@ class Machine(object):
         self.cur_objs = [s for s in self.objs if self.sl-1 in xrange(s.y, s.y+8)]
         self.spr_map = [None] * 256
         for spr in self.cur_objs:
-            for x in xrange(s.x, s.x+8):
+            for x in xrange(spr.x, spr.x+8):
                 self.spr_map[x] = spr
 
     def get_nt_color(self):
@@ -460,10 +461,7 @@ class Machine(object):
             self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
             self.at_val &= 2
             self.at_val <<= 2
-            #self.low = self.ppu_get_mem(self.pt_addr + fineY)
-            #self.hi = self.ppu_get_mem(self.pt_addr + 8 + fineY) 
         color_i = self.patterns[self.pt_addr,(self.fineX, fineY)]
-        #((self.low >> (7-self.fineX)) & 1) | (((self.hi >> (7-self.fineX)) & 1) << 1)
         if color_i & 3:
             color_i |= self.at_val
             color = self.ppu_get_mem(0x3f00 + color_i)
@@ -477,13 +475,7 @@ class Machine(object):
         yoff = y - sprite.y - 1
         base_pt_addr = 0x1000 if (self.pctrl & (1 << 3)) else 0
         pt_addr = (sprite.tile * 0x10) + base_pt_addr
-        low = self.ppu_get_mem(pt_addr + yoff)
-        hi = self.ppu_get_mem(pt_addr + 8 + yoff)
-        low &= (1 << (7-xoff))
-        low = 1 if low else 0
-        hi &= (1 << (7-xoff))
-        hi = 1 if hi else 0
-        color_i = low | (hi << 1)
+        color_i = self.patterns[pt_addr, (xoff, yoff)]
         if not color_i:
             return None
         color_i |= palette << 2
@@ -1164,7 +1156,6 @@ class Rom(object):
 
 
 filename = sys.argv[1]
-rom = Rom(open(filename))
+rom = Rom(open(filename, 'rb'))
 mach = Machine(rom)
-cProfile.run('mach.run()', 'prof')
-#mach.run()
+cProfile.run('mach.run()')
