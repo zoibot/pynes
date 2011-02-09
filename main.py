@@ -342,8 +342,6 @@ class Machine(object):
                 else:
                     todo = 341 - self.cyc
                 y = self.sl
-                fineY = (self.paddr & 0x7000) >> 12
-                color = self.ppu_get_mem(0x3f00)
                 for x in xrange(self.cyc, min(self.cyc + todo, 256)):
                     if rendering_enabled:
                         self.render_pixel(x, y)

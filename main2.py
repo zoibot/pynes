@@ -342,9 +342,7 @@ class Machine(object):
                 else:
                     todo = 341 - self.cyc
                 y = self.sl
-                fineY = (self.paddr & 0x7000) >> 12
-                color = self.ppu_get_mem(0x3f00)
-                if rendering_enabled:
+                if rendering_enabled and self.cyc < 256:
                     self.render_pixels(self.cyc, y, min(todo, 256-self.cyc))
                 self.cyc += todo
                 self.ppu_cycles += todo
@@ -431,31 +429,29 @@ class Machine(object):
 
     def get_nt_colors(self, num):
         fineY = (self.paddr >> 12) & 7
-        new_nt_addr = 0x2000 + (self.paddr & 0xfff)
         colors = []
         while num:
-            if self.nt_addr != new_nt_addr:
-                # get new nt_byte
-                self.nt_addr = new_nt_addr
-                #have a mapping here??
-                self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
-                self.nt_val = self.ppu_get_mem(self.nt_addr)
-                base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
-                self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
-                #get new at val
-                self.at = self.ppu_get_mem(self.at_base + ((self.nt_addr & 0x3ff)>>4))
-                nt_off = (self.nt_addr & 0x3ff)
-                row = (nt_off >> 6) & 1
-                col = (nt_off & 0x2) >> 1
-                #have a mapping here??
-                self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
-                self.at_val &= 2
-                self.at_val <<= 2
-            color_is = [self.patterns[self.pt_addr,(fX, fineY)] for fX in xrange(self.fineX, self.fineX + min(num, 8-self.fineX))]
-            num -= min(num, 8-self.fineX)
+            self.nt_addr = 0x2000 | (self.paddr & 0xfff)
+            self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
+            self.nt_val = self.ppu_get_mem(self.nt_addr)
+            base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
+            self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
+            #get new at val
+            self.at = self.ppu_get_mem(self.at_base + ((self.nt_addr & 0x3ff)>>4))
+            nt_off = (self.nt_addr & 0x3ff)
+            row = (nt_off >> 6) & 1
+            col = (nt_off & 0x2) >> 1
+            #have a mapping here??
+            self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
+            self.at_val &= 2
+            self.at_val <<= 2
+            todo = min(num, 8-self.fineX)
+            color_is = [self.patterns[self.pt_addr, (fX, fineY)] for fX in xrange(self.fineX, self.fineX + todo)]
+            self.fineX = (self.fineX + todo) & 7
+            num -= todo
             palette_base = 0x3f00 + self.at_val
-            colors += map(lambda i: self.ppu_get_mem(palette_base+i) if i else False, color_is)
-            self.fineX = (self.fineX + min(num, 8-self.fineX)) & 7
+            bg_color = self.ppu_get_mem(0x3f00)
+            colors += map(lambda i: self.ppu_get_mem(palette_base+i) if i else bg_color, color_is)
             if not self.fineX:
                 if self.paddr & 0x1f == 0x1f:
                     self.paddr |= 0x400
