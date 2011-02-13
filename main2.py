@@ -406,7 +406,7 @@ class Machine(object):
         #        if (not color or (not (cur_spr.attrs & (1 << 5)))):
         #            if spr_color:
         #                color = spr_color
-        self.pixels[x:x+num,y] = map(lambda color: colors[color], cols)
+        self.pixels[x:x+num,y] = [colors[color] for color in cols]
 
     def new_scanline(self):
         fineY = (self.paddr & 0x7000) >> 12
@@ -430,14 +430,14 @@ class Machine(object):
     def get_nt_colors(self, num):
         fineY = (self.paddr >> 12) & 7
         colors = []
+        base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
         while num:
             self.nt_addr = 0x2000 | (self.paddr & 0xfff)
             self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
-            self.nt_val = self.ppu_get_mem(self.nt_addr)
-            base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
+            self.nt_val = self.ppu_mem[self.nt_addr]
             self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
             #get new at val
-            self.at = self.ppu_get_mem(self.at_base + ((self.nt_addr & 0x3ff)>>4))
+            self.at = self.ppu_mem[self.at_base + ((self.nt_addr & 0x3ff)>>4)]
             nt_off = (self.nt_addr & 0x3ff)
             row = (nt_off >> 6) & 1
             col = (nt_off & 0x2) >> 1
@@ -450,8 +450,8 @@ class Machine(object):
             self.fineX = (self.fineX + todo) & 7
             num -= todo
             palette_base = 0x3f00 + self.at_val
-            bg_color = self.ppu_get_mem(0x3f00)
-            colors += map(lambda i: self.ppu_get_mem(palette_base+i) if i else bg_color, color_is)
+            bg_color = self.ppu_mem[0x3f00]
+            colors += [self.ppu_mem[palette_base+i] if i else bg_color for i in color_is]
             if not self.fineX:
                 if self.paddr & 0x1f == 0x1f:
                     self.paddr |= 0x400
@@ -1149,4 +1149,4 @@ class Rom(object):
 filename = sys.argv[1]
 rom = Rom(open(filename, 'rb'))
 mach = Machine(rom)
-cProfile.run('mach.run()')
+cProfile.run('mach.run()', 'prof')
