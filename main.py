@@ -3,7 +3,7 @@ import sys
 import struct
 from array import array
 import cProfile
-import copy
+#import copy
 
 #pygame
 import pygame
@@ -12,15 +12,6 @@ import pygame
 import ppu
 import cpu
 from util import *
-
-class Sprite(object):
-    def __init__(self, index):
-        self.index = index
-    def update(self, data):
-        self.y = data[0]
-        self.tile = data[1]
-        self.attrs = data[2]
-        self.x = data[3]
 
 class Machine(object):
     '''Class for actually simulating the machine'''
@@ -34,33 +25,9 @@ class Machine(object):
     mem = [0]
     cycle_count = 0
     inst = None
-#PPU
-    sl = -1
-    cyc = 0
-    pctrl = 0
-    pmask = 0
-    pstat = 0b10100000
-    oamaddr = 0
-    platch = False
-    paddr = 0
-    taddr = 0
-    xoff = 0
-    fineX = 0
-    pdata = 0
-    ppu_mem = [0]
-    ppu_mem_buf = 0
-    ppu_cycles = 0
     frame_count = 0
-    obj_mem = [0]
-    objs = [Sprite(i) for i in range(64)]
-    cur_objs = []
-    spr_map = [None] * 256
-    nt_addr = 0
-    nt_val = 0
-    at_base = 0x23c0
-    at_val = 0
-    ppu_flag = False
-    patterns = {}
+#PPU
+    ppu = None
 #APU
     seq_mode = 0
     frame_irq = 0
@@ -91,31 +58,7 @@ class Machine(object):
         if addr < 0x2000:
             return self.mem[(addr) & 0x7ff]
         elif addr < 0x4000:
-            #ppu
-            i = (addr - 0x2000) & 0x7
-            if i == 0:
-                pass
-            elif i == 2:
-                ret = self.pstat
-                self.pstat &= ~(1 << 7)
-                self.platch = False
-                return ret
-            elif i == 4:
-                ret = self.obj_mem[self.oamaddr]
-                return ret
-            elif i == 7:
-                if self.paddr < 0x3f00:
-                    res = self.ppu_mem_buf
-                    self.ppu_mem_buf = self.ppu_get_mem(self.paddr)
-                    self.paddr += 32 if self.pctrl & (1 << 2) else 1
-                    self.paddr &= 0x3fff
-                    return res
-                else:
-                    #needs to do some crap, also stil get mem
-                    res = self.ppu_get_mem(self.paddr)
-                    self.paddr += 32 if self.pctrl & (1 << 2) else 1
-                    self.paddr &= 0x3fff
-                    return res
+            self.ppu.read_register((addr - 0x2000)&8)
         elif addr < 0x4018:
             if addr == 0x4016:
                 if self.read_input_state < 8:
@@ -130,51 +73,12 @@ class Machine(object):
             return self.rom.prg_rom[addr-0x8000]
         else:
             return self.rom.prg_rom[addr-0xC000]
+
     def set_mem(self, addr, val):
         if addr < 0x2000:
             self.mem[(addr) & 0x7ff] = val
         elif addr < 0x4000:
-            self.ppu_flag = True
-            i = (addr - 0x2000) & 0x7
-            if i == 0:
-                self.pctrl = val
-                self.taddr &= (~(0x3 << 10))
-                self.taddr |= (val & 0x3) << 10
-            elif i == 1:
-                self.pmask = val
-            elif i == 3:
-                self.oamaddr = val
-            elif i == 4:
-                self.obj_mem[self.oamaddr] = val
-                self.update_sprites()
-                self.oamaddr += 1
-                self.oamaddr &= 0xff
-            elif i == 5:
-                if self.platch:
-                    self.taddr &= (~0x73e0)
-                    self.taddr |= (val >> 3) << 5
-                    self.taddr |= (val & 0x7) << 12
-                    self.platch = False
-                else:
-                    self.taddr &= ~0x1f
-                    self.taddr |= val >> 3
-                    self.xoff = val & 0x7
-                    self.fineX = val & 0x7
-                    self.platch = True
-            elif i == 6:
-                if self.platch:
-                    self.taddr &= ~0xff
-                    self.taddr |= val
-                    self.paddr = self.taddr
-                    self.platch = False
-                else:
-                    self.taddr &= 0xff
-                    self.taddr |= (val & 0x3f) << 8
-                    self.platch = True
-            elif i == 7:
-                self.ppu_set_mem(self.paddr, val)
-                self.paddr += 32 if self.pctrl & (1 << 2) else 1
-                self.paddr &= 0x3fff
+            self.ppu.write_register((addr - 0x2000)&8)
         elif addr < 0x4018:
             if addr == 0x4016:
                 if val & 1:
@@ -276,22 +180,7 @@ class Machine(object):
         self.mem.fromlist([0xff] * (0x800))
         self.inst = Instruction()
         #ppu stuff
-        self.ppu_mem = array('B')
-        self.ppu_mem.fromlist([0xff] * (0x4000))
-        self.obj_mem = array('B')
-        self.obj_mem.fromlist([0xff] * (0x100))
-        self.process_patterns()
-        self.mirroring = self._vert_mirror if self.rom.flags6 & 1 else self._horiz_mirror
-
-    def process_patterns(self):
-        for i in xrange(0,0x2000,16):
-            self.update_pattern(i)
-    def update_pattern(self,addr):
-        for y in xrange(8):
-            lo = self.rom.chr_rom[addr + y]
-            hi = self.rom.chr_rom[addr + y + 8]
-            for x in xrange(8):
-                self.patterns[addr,(x,y)] = ((lo >> (7-x)) & 1) | (((hi >> (7-x)) & 1) << 1)
+        self.ppu = ppu.PPU(self)
 
     def run(self):
         self.reset()
@@ -307,7 +196,8 @@ class Machine(object):
             #    print self.dump_regs()
             self.execute(self.inst)
             self.cycle_count += self.inst.cycles
-            self.run_ppu_prime()
+            if self.ppu.cycles < self.cycle_count * 3:
+                self.ppu.run()
 
     def next_inst(self):
         self.prev_pc = self.pc
@@ -327,8 +217,6 @@ class Machine(object):
             #should log this
 
     def run_ppu_prime(self):
-        if self.ppu_cycles >= self.cycle_count * 3:
-            return
         bg_enabled = self.pmask & (1 << 3)
         sprite_enabled = self.pmask & (1 << 4)
         rendering_enabled = bg_enabled or sprite_enabled
@@ -342,9 +230,8 @@ class Machine(object):
                 else:
                     todo = 341 - self.cyc
                 y = self.sl
-                for x in xrange(self.cyc, min(self.cyc + todo, 256)):
-                    if rendering_enabled:
-                        self.render_pixel(x, y)
+                if rendering_enabled and self.cyc < 256:
+                    self.render_pixels(self.cyc, y, min(todo, 256-self.cyc))
                 self.cyc += todo
                 self.ppu_cycles += todo
                 if self.cyc == 341:
@@ -395,30 +282,13 @@ class Machine(object):
         print self.clock.get_fps()
         self.frame_count += 1
 
-    def render_pixel(self, x, y):
+    def render_pixels(self, x, y, num):
         if self.pmask & 0x8:
-            color = self.get_nt_color()
-        if self.pmask & 0x10:
-            cur_spr = self.spr_map[x]
-            if cur_spr:
-                spr_color = self.get_sprite_color(cur_spr, x, y)
-                if cur_spr.index == 0 and color is not None:
-                    self.pstat |= 1 << 6 #spr 0 hit
-                if (color is None or (not (cur_spr.attrs & (1 << 5)))):
-                    if spr_color:
-                        color = spr_color
-        if color:
-            try:
-                self.pixels[x,y] = colors[color]
-            except:
-                print 'something broke'
-        self.fineX = (self.fineX + 1) & 7
-        if not self.fineX:
-            if self.paddr & 0x1f == 0x1f:
-                self.paddr |= 0x400
-                self.paddr -= 0x1f
-            else:
-                self.paddr += 1
+            cols = self.get_nt_colors(num)
+        try:
+            self.pixels[x:x+num,y] = [colors[color] for color in cols]
+        except:
+            print color
 
     def new_scanline(self):
         fineY = (self.paddr & 0x7000) >> 12
@@ -437,21 +307,20 @@ class Machine(object):
         self.spr_map = [None] * 256
         for spr in self.cur_objs:
             for x in xrange(spr.x, spr.x+8):
-                self.spr_map[x] = spr
+                self.spr_map[x] = self.get_sprite_color(spr, x, self.sl)
 
-    def get_nt_color(self):
+    def get_nt_colors(self, num):
         fineY = (self.paddr >> 12) & 7
-        new_nt_addr = 0x2000 + (self.paddr & 0xfff)
-        if self.nt_addr != new_nt_addr:
-            # get new nt_byte
-            self.nt_addr = new_nt_addr
-            #have a mapping here??
-            self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
-            self.nt_val = self.ppu_get_mem(self.nt_addr)
-            base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
-            self.pt_addr = (self.nt_val * 0x10) + base_pt_addr
+        colors = []
+        xoff = self.cyc
+        base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
+        self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
+        self.at = self.ppu_mem[self.at_base + ((self.nt_addr & 0x3ff)>>4)]
+        while num:
+            self.nt_addr = 0x2000 | (self.paddr & 0xfff)
+            self.nt_val = self.ppu_mem[self.nt_addr]
+            self.pt_addr = (self.nt_val << 4) + base_pt_addr
             #get new at val
-            self.at = self.ppu_get_mem(self.at_base + ((self.nt_addr & 0x3ff)>>4))
             nt_off = (self.nt_addr & 0x3ff)
             row = (nt_off >> 6) & 1
             col = (nt_off & 0x2) >> 1
@@ -459,13 +328,33 @@ class Machine(object):
             self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
             self.at_val &= 2
             self.at_val <<= 2
-        color_i = self.patterns[self.pt_addr,(self.fineX, fineY)]
-        if color_i & 3:
-            color_i |= self.at_val
-            color = self.ppu_get_mem(0x3f00 + color_i)
+            todo = min(num, 8-self.fineX)
+            pat = self.patterns[self.pt_addr, fineY]
+            color_is = pat[self.fineX:self.fineX+todo]
+            self.fineX = (self.fineX + todo) & 7
+            num -= todo
+            palette_base = 0x3f00 + self.at_val
+            colors += [self.ppu_mem[palette_base+self.mux_color(ix, self.spr_map[xoff+i])] for i, ix in enumerate(color_is)]
+            xoff += todo
+            if not self.fineX:
+                if self.paddr & 0x1f == 0x1f:
+                    self.paddr |= 0x400
+                    self.paddr -= 0x1f
+                else:
+                    self.paddr += 1
+        return colors
+
+    def mux_color(self, nt_color, spr):
+        if nt_color and not spr:
+            return nt_color
+        elif not nt_color and not spr:
+            return 0
         else:
-            color = None
-        return color
+            (spr_color, spr_bg, spr_num) = spr
+            if not spr_bg and spr_num == 0:
+                self.pstat |= 1 << 6 #spr 0 hit
+            return spr_color if spr_color and not (spr_bg and nt_color) else nt_color
+
 
     def get_sprite_color(self, sprite, x, y):
         palette = sprite.attrs & 3
@@ -473,12 +362,12 @@ class Machine(object):
         yoff = y - sprite.y - 1
         base_pt_addr = 0x1000 if (self.pctrl & (1 << 3)) else 0
         pt_addr = (sprite.tile * 0x10) + base_pt_addr
-        color_i = self.patterns[pt_addr, (xoff, yoff)]
+        color_i = self.patterns[pt_addr, yoff][xoff]
         if not color_i:
-            return None
+            return (None, None, None)
         color_i |= palette << 2
         color_i |= 1 << 4
-        return self.ppu_get_mem(0x3f00 + color_i)
+        return color_i, sprite.attrs & (1 << 5), sprite.index
 
     def update_sprites(self):
         for spr in self.objs:
@@ -1156,4 +1045,4 @@ class Rom(object):
 filename = sys.argv[1]
 rom = Rom(open(filename, 'rb'))
 mach = Machine(rom)
-cProfile.run('mach.run()')
+cProfile.run('mach.run()', 'prof')
