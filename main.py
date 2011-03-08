@@ -52,13 +52,20 @@ class Machine(object):
     def set_nz(self, val):
         self.set_flag('Z', val == 0)
         self.set_flag('N', val & (1 << 7))
+    
+    def next_byte(self):
+        x = self.get_code_mem(self.pc)#self.rom.prg_rom[self.pc & 0x3fff]
+        self.pc += 1
+        return x
+    def next_word(self):
+        return self.next_byte() | (self.next_byte() << 8)
 
     #TODO mem should be its own class and slicable
     def get_mem(self, addr):
         if addr < 0x2000:
             return self.mem[(addr) & 0x7ff]
         elif addr < 0x4000:
-            self.ppu.read_register((addr - 0x2000)&8)
+            return self.ppu.read_register((addr - 0x2000)&7)
         elif addr < 0x4018:
             if addr == 0x4016:
                 if self.read_input_state < 8:
@@ -66,7 +73,7 @@ class Machine(object):
                     return self.keys[self.read_input_state-1]
                 else:
                     return 1
-            return 0 # input ALU
+            return 0 # ALU
         elif addr < 0x8000:
             return self.rom.prg_ram[addr-0x6000]
         elif addr < 0xC000 or self.rom.prg_size > 1:
@@ -74,11 +81,17 @@ class Machine(object):
         else:
             return self.rom.prg_rom[addr-0xC000]
 
+    def get_code_mem(self, addr):
+        if addr > 0x8000:
+            return self.rom.prg_rom[addr & 0x3fff]
+        else:
+            return self.get_mem(addr)
+
     def set_mem(self, addr, val):
         if addr < 0x2000:
             self.mem[(addr) & 0x7ff] = val
         elif addr < 0x4000:
-            self.ppu.write_register((addr - 0x2000)&8)
+            self.ppu.write_register((addr - 0x2000)&7, val)
         elif addr < 0x4018:
             if addr == 0x4016:
                 if val & 1:
@@ -90,7 +103,7 @@ class Machine(object):
                 start = val << 8
                 end = start + 0x100
                 self.obj_mem = self.mem[start:end]
-                self.update_sprites()
+                #self.update_sprites()
 
             pass # input / ALU
         elif addr < 0x8000:
@@ -165,7 +178,7 @@ class Machine(object):
         res += ' Y:'+hex2(self.y)
         res += ' P:'+hex2(self.p)
         res += ' SP:'+hex2(self.s)
-        res += ' VA:'+hex4(self.paddr)
+        res += ' VA:'+hex4(self.ppu.vaddr)
         return res
 
     def __init__(self, rom):
@@ -184,28 +197,28 @@ class Machine(object):
 
     def run(self):
         self.reset()
-        debug = False# True
-        while True:
-            #if debug:
-            #    print hex4(self.pc),
-            #    print '',
-            self.next_inst()
-            #if debug:
-            #    print self.inst,
-            #    print '  ',
-            #    print self.dump_regs()
-            self.execute(self.inst)
-            self.cycle_count += self.inst.cycles
-            if self.ppu.cycles < self.cycle_count * 3:
-                self.ppu.run()
+        if len(sys.argv) == 3:
+            while True:
+                print hex4(self.pc),
+                print '',
+                self.next_inst()
+                print self.inst,
+                print '  ',
+                print self.dump_regs()
+                self.execute(self.inst)
+                self.cycle_count += self.inst.cycles
+                self.ppu.run(self.inst.cycles * 3)
+        else:
+            while True:
+                self.next_inst()
+                self.execute(self.inst)
+                self.cycle_count += self.inst.cycles
+                self.ppu.run(self.inst.cycles * 3)
 
     def next_inst(self):
         self.prev_pc = self.pc
-        op = self.get_mem(self.pc)
-        self.inst.read(op)
-        self.pc += 1
-        self.inst.parse_operand([self.get_mem(a) for a in xrange(self.pc, self.pc+2)], self)
-        self.pc += self.inst.addr_len 
+        self.inst.read(self.next_byte())
+        self.inst.parse_operand(self.inst,self)
         
     def execute(self, inst):
         try:
@@ -268,19 +281,6 @@ class Machine(object):
             if rendering_enabled:
                 self.paddr = self.taddr
                 self.fineX = self.xoff
-
-    def draw_frame(self):
-        self.ppu_cycles += 341
-        self.sl = -1
-        self.surface.unlock()
-        pygame.display.flip()
-        self.surface.fill(0x0)
-        self.surface.lock()
-        pygame.event.pump()
-        self.clock.tick()
-        print 'frame ', self.frame_count
-        print self.clock.get_fps()
-        self.frame_count += 1
 
     def render_pixels(self, x, y, num):
         if self.pmask & 0x8:
@@ -645,233 +645,303 @@ class Machine(object):
 class Instruction(object):
 #TODO brk, some illegals
     '''Class for parsing instructions'''
-    opcodes = { 0x00 : ('brk', 'imp', 7),
-                0x01 : ('ora', 'ixid', 6),
-                0x03 : ('slo*', 'ixid', 1),
-                0x04 : ('nop*', 'zp', 1),
-                0x05 : ('ora', 'zp', 2),
-                0x06 : ('asl', 'zp', 5),
-                0x07 : ('slo*', 'zp', 1),
-                0x08 : ('php', 'imp', 3),
-                0x09 : ('ora', 'imm', 2),
-                0x0a : ('asl_a', 'a', 2),
-                0x0c : ('nop*', 'abs', 1),
-                0x0d : ('ora', 'abs', 4),
-                0x0e : ('asl', 'abs', 6),
-                0x0f : ('slo*', 'abs', 1),
-                0x10 : ('bpl', 'rel', 2),
-                0x11 : ('ora', 'idix', 5),
-                0x13 : ('slo*', 'idix', 1),
-                0x14 : ('nop*', 'zpx', 1),
-                0x15 : ('ora', 'zpx', 3),
-                0x16 : ('asl', 'zpx', 6),
-                0x17 : ('slo*', 'zpx', 1),
-                0x18 : ('clc', 'imp', 2),
-                0x19 : ('ora', 'absy', 4),
-                0x1a : ('nop*', 'imp', 1),
-                0x1b : ('slo*', 'absy', 1),
-                0x1c : ('nop*', 'absx', 1),
-                0x1d : ('ora', 'absx', 4),
-                0x1e : ('asl', 'absx', 7),
-                0x1f : ('slo*', 'absx', 1),
-                0x20 : ('jsr', 'abs', 6),
-                0x21 : ('and_', 'ixid', 6),
-                0x23 : ('rla*', 'ixid', 1),
-                0x24 : ('bit', 'zp', 3),
-                0x25 : ('and_', 'zp', 2),
-                0x26 : ('rol', 'zp', 5),
-                0x27 : ('rla*', 'zp', 1),
-                0x28 : ('plp', 'imp', 4),
-                0x29 : ('and_', 'imm', 2),
-                0x2a : ('rol_a', 'a', 2),
-                0x2c : ('bit', 'abs', 4),
-                0x2d : ('and_', 'abs', 4),
-                0x2e : ('rol', 'abs', 6),
-                0x2f : ('rla*', 'abs', 1),
-                0x30 : ('bmi', 'rel', 2),
-                0x31 : ('and_', 'idix', 5),
-                0x33 : ('rla*', 'idix', 1),
-                0x34 : ('nop*', 'zpx', 1),
-                0x35 : ('and_', 'zpx', 3),
-                0x36 : ('rol', 'zpx', 6),
-                0x37 : ('rla*', 'zpx', 1),
-                0x38 : ('sec', 'imp', 2),
-                0x39 : ('and_', 'absy', 4),
-                0x3a : ('nop*', 'imp', 1),
-                0x3b : ('rla*', 'absy', 1),
-                0x3c : ('nop*', 'absx', 1),
-                0x3d : ('and_', 'absx', 4),
-                0x3e : ('rol', 'absx', 7),
-                0x3f : ('rla*', 'absx', 1),
-                0x40 : ('rti', 'imp', 6),
-                0x41 : ('eor', 'ixid', 6),
-                0x43 : ('sre*', 'ixid', 1),
-                0x44 : ('nop*', 'zp', 1),
-                0x45 : ('eor', 'zp', 3),
-                0x46 : ('lsr', 'zp', 5),
-                0x47 : ('sre*', 'zp', 1),
-                0x48 : ('pha', 'imp', 3),
-                0x49 : ('eor', 'imm', 2),
-                0x4a : ('lsr_a', 'a', 2),
-                0x4c : ('jmp', 'abs', 3),
-                0x4d : ('eor', 'abs', 4),
-                0x4e : ('lsr', 'abs', 6),
-                0x4f : ('sre*', 'abs', 1),
-                0x50 : ('bvc', 'rel', 2),
-                0x51 : ('eor', 'idix', 5),
-                0x53 : ('sre*', 'idix', 1),
-                0x54 : ('nop*', 'zpx', 1),
-                0x55 : ('eor', 'zpx', 4),
-                0x56 : ('lsr', 'zpx', 6),
-                0x57 : ('sre*', 'zpx', 1),
-                0x58 : ('cli', 'imp', 2),
-                0x59 : ('eor', 'absy', 4),
-                0x5a : ('nop*', 'imp', 1),
-                0x5b : ('sre*', 'absy', 1),
-                0x5c : ('nop*', 'absx', 1),
-                0x5d : ('eor', 'absx', 4),
-                0x5e : ('lsr', 'absx', 7),
-                0x5f : ('sre*', 'absx', 1),
-                0x60 : ('rts', 'imp', 6),
-                0x61 : ('adc', 'ixid', 6),
-                0x63 : ('rra*', 'ixid', 1),
-                0x64 : ('nop*', 'zp', 1),
-                0x65 : ('adc', 'zp', 3),
-                0x66 : ('ror', 'zp', 5),
-                0x67 : ('rra*', 'zp', 1),
-                0x68 : ('pla', 'imp', 4),
-                0x69 : ('adc', 'imm', 2),
-                0x6a : ('ror_a', 'a', 2),
-                0x6c : ('jmp', 'absi', 5),
-                0x6d : ('adc', 'abs', 4),
-                0x6e : ('ror', 'abs', 6),
-                0x6f : ('rra*', 'abs', 1),
-                0x70 : ('bvs', 'rel', 2),
-                0x71 : ('adc', 'idix', 5),
-                0x73 : ('rra*', 'idix', 1),
-                0x74 : ('nop*', 'zpx', 1),
-                0x75 : ('adc', 'zpx', 4),
-                0x76 : ('ror', 'zpx', 6),
-                0x77 : ('rra*', 'zpx', 1),
-                0x78 : ('sei', 'imp', 2),
-                0x79 : ('adc', 'absy', 4),
-                0x7a : ('nop*', 'imp', 1),
-                0x7b : ('rra*', 'absy', 1),
-                0x7c : ('nop*', 'absx', 1),
-                0x7d : ('adc', 'absx', 4),
-                0x7e : ('ror', 'absx', 7),
-                0x7f : ('rra*', 'absx', 1),
-                0x80 : ('nop*', 'imm', 1),
-                0x81 : ('sta', 'ixid', 6),
-                0x83 : ('sax*', 'ixid', 1),
-                0x84 : ('sty', 'zp', 3),
-                0x85 : ('sta', 'zp', 3),
-                0x86 : ('stx', 'zp', 3),
-                0x87 : ('sax*', 'zp', 1),
-                0x88 : ('dey', 'imp', 2),
-                0x8a : ('txa', 'imp', 2),
-                0x8c : ('sty', 'abs', 4),
-                0x8d : ('sta', 'abs', 4),
-                0x8e : ('stx', 'abs', 4),
-                0x8f : ('sax*', 'abs', 1),
-                0x90 : ('bcc', 'rel', 2),
-                0x91 : ('sta', 'idix', 6),
-                0x94 : ('sty', 'zpx', 4),
-                0x95 : ('sta', 'zpx', 4),
-                0x96 : ('stx', 'zpy', 4),
-                0x97 : ('sax*', 'zpy', 1),
-                0x98 : ('tya', 'imp', 2),
-                0x99 : ('sta', 'absy', 5),
-                0x9a : ('txs', 'imp', 2),
-                0x9d : ('sta', 'absx', 5),
-                0xa0 : ('ldy', 'imm', 2),
-                0xa1 : ('lda', 'ixid', 6),
-                0xa2 : ('ldx', 'imm', 2),
-                0xa3 : ('lax*', 'ixid', 1),
-                0xa4 : ('ldy', 'zp', 3),
-                0xa5 : ('lda', 'zp', 3),
-                0xa6 : ('ldx', 'zp', 3),
-                0xa7 : ('lax*', 'zp', 1),
-                0xa8 : ('tay', 'imp', 2),
-                0xa9 : ('lda', 'imm', 2),
-                0xaa : ('tax', 'imp', 2),
-                0xac : ('ldy', 'abs', 4),
-                0xad : ('lda', 'abs', 4),
-                0xae : ('ldx', 'abs', 4),
-                0xaf : ('lax*', 'abs', 1),
-                0xb0 : ('bcs', 'rel', 2),
-                0xb1 : ('lda', 'idix', 5),
-                0xb3 : ('lax*', 'idix', 1),
-                0xb4 : ('ldy', 'zpx', 4),
-                0xb5 : ('lda', 'zpx', 4),
-                0xb6 : ('ldx', 'zpy', 4),
-                0xb7 : ('lax*', 'zpy', 1),
-                0xb8 : ('clv', 'imp', 2),
-                0xb9 : ('lda', 'absy', 4),
-                0xba : ('tsx', 'imp', 2),
-                0xbc : ('ldy', 'absx', 4),
-                0xbd : ('lda', 'absx', 4),
-                0xbe : ('ldx', 'absy', 4),
-                0xbf : ('lax*', 'absy', 1),
-                0xc0 : ('cpy', 'imm', 2),
-                0xc1 : ('cmp', 'ixid', 6),
-                0xc3 : ('dcp*', 'ixid', 1),
-                0xc4 : ('cpy', 'zp', 3),
-                0xc5 : ('cmp', 'zp', 3),
-                0xc6 : ('dec', 'zp', 5),
-                0xc7 : ('dcp*', 'zp', 1),
-                0xc8 : ('iny', 'imp', 2),
-                0xc9 : ('cmp', 'imm', 2),
-                0xca : ('dex', 'imp', 2),
-                0xcc : ('cpy', 'abs', 4),
-                0xcd : ('cmp', 'abs', 4),
-                0xce : ('dec', 'abs', 6),
-                0xcf : ('dcp*', 'abs', 1),
-                0xd0 : ('bne', 'rel', 2),
-                0xd1 : ('cmp', 'idix', 5),
-                0xd3 : ('dcp*', 'idix', 1),
-                0xd4 : ('nop*', 'zpx', 1),
-                0xd5 : ('cmp', 'zpx', 4),
-                0xd6 : ('dec', 'zpx', 6),
-                0xd7 : ('dcp*', 'zpx', 1),
-                0xd8 : ('cld', 'imp', 2),
-                0xd9 : ('cmp', 'absy', 4),
-                0xda : ('nop*', 'imp', 1),
-                0xdb : ('dcp*', 'absy', 1),
-                0xdc : ('nop*', 'absx', 1),
-                0xdd : ('cmp', 'absx', 4),
-                0xde : ('dec', 'absx', 7),
-                0xdf : ('dcp*', 'absx', 1),
-                0xe0 : ('cpx', 'imm', 2),
-                0xe1 : ('sbc', 'ixid', 6),
-                0xe3 : ('isb*', 'ixid', 1),
-                0xe4 : ('cpx', 'zp', 3),
-                0xe5 : ('sbc', 'zp', 3),
-                0xe6 : ('inc', 'zp', 5),
-                0xe7 : ('isb*', 'zp', 1),
-                0xe8 : ('inx', 'imp', 2),
-                0xe9 : ('sbc', 'imm', 2),
-                0xea : ('nop', 'imp', 2),
-                0xeb : ('sbc*', 'imm', 1),
-                0xec : ('cpx', 'abs', 4),
-                0xed : ('sbc', 'abs', 4),
-                0xee : ('inc', 'abs', 6),
-                0xef : ('isb*', 'abs', 1),
-                0xf0 : ('beq', 'rel', 2),
-                0xf1 : ('sbc', 'idix', 5),
-                0xf3 : ('isb*', 'idix', 1),
-                0xf4 : ('nop*', 'zpx', 1),
-                0xf5 : ('sbc', 'zpx', 4),
-                0xf6 : ('inc', 'zpx', 6),
-                0xf7 : ('isb*', 'zpx', 1),
-                0xf8 : ('sed', 'imp', 2),
-                0xf9 : ('sbc', 'absy', 4),
-                0xfa : ('nop*', 'imp', 1),
-                0xfb : ('isb*', 'absy', 1),
-                0xfc : ('nop*', 'absx', 1),
-                0xfd : ('sbc', 'absx', 4),
-                0xfe : ('inc', 'absx', 7),
-                0xff : ('isb*', 'absx', 7)}
+
+    def imm2(self, mach):
+        self.operand = mach.next_word()
+    def imm(self, mach):
+        self.operand = mach.next_byte()
+    def imp(self, mach):
+        self.operand = None
+    def a(self, mach):
+        self.imp(mach)
+    def zp(self, mach):
+        self.addr = mach.next_byte()
+        if self.op[:2] != 'st':
+            self.operand = mach.get_mem(self.addr)
+    def abs(self, mach):
+        self.addr = mach.next_word()
+        self.operand = mach.get_mem(self.addr)
+    def abs_st(self, mach):
+        self.addr = mach.next_word()
+    def absi(self, mach):
+        self.i_addr = mach.next_word()
+        self.addr = (mach.get_mem(self.i_addr) 
+                 + (mach.get_mem(((self.i_addr+1) & 0xff) 
+                 + (self.i_addr & 0xff00)) << 8))
+    def absy(self, mach):
+        self.i_addr = mach.next_word()
+        self.addr = (self.i_addr + mach.y) & 0xffff
+        if self.op[:2] != 'st':
+            self.operand = mach.get_mem(self.addr)
+        if self.i_addr & 0xff00 != self.addr & 0xff00:
+            self.cycles += 1
+    def absx(self, mach):
+        self.i_addr = mach.next_word()
+        self.addr = (self.i_addr + mach.x) & 0xffff
+        if self.op[:2] != 'st':
+            self.operand = mach.get_mem(self.addr)
+        if self.i_addr & 0xff00 != self.addr & 0xff00:
+            self.cycles += 1
+    def rel(self, mach):
+        addr = mach.next_byte()
+        off = addr if addr < 0x80 else addr-0x100
+        self.operand = (off + mach.pc) 
+    def ixid(self, mach):
+        self.i_addr = (mach.next_byte() + mach.x) & 0xff
+        self.addr = (mach.get_mem(self.i_addr) + 
+                (mach.get_mem((self.i_addr+1) & 0xff) << 8))
+        if self.op[:2] != 'st':
+            self.operand = mach.get_mem(self.addr)
+    def idix(self, mach):
+        self.i_addr = mach.next_byte()
+        self.addr = (mach.get_mem(self.i_addr) +
+                (mach.get_mem((self.i_addr+1) & 0xff) << 8)) + mach.y
+        self.addr &= 0xffff
+        if self.op[:2] != 'st':
+            self.operand = mach.get_mem(self.addr)
+        if self.addr & 0xff00 != (self.addr - mach.y) & 0xff00:
+            self.cycles += 1
+    def zpx(self, mach):
+        self.i_addr = mach.next_byte()
+        self.addr = (self.i_addr + mach.x) & 0xff
+        if self.op[:2] != 'st':
+            self.operand = mach.get_mem(self.addr)
+    def zpy(self, mach):
+        self.i_addr = mach.next_byte()
+        self.addr = (self.i_addr + mach.y) & 0xff
+        if self.op[:2] != 'st':
+            self.operand = mach.get_mem(self.addr)
+
+
+    opcodes = { 
+                0x00 : ('brk', imp, 7),
+                0x01 : ('ora', ixid, 6),
+                0x03 : ('slo', ixid, 1),
+                0x04 : ('nop', zp, 1),
+                0x05 : ('ora', zp, 2),
+                0x06 : ('asl', zp, 5),
+                0x07 : ('slo', zp, 1),
+                0x08 : ('php', imp, 3),
+                0x09 : ('ora', imm, 2),
+                0x0a : ('asl_a', a, 2),
+                0x0c : ('nop', abs, 1),
+                0x0d : ('ora', abs, 4),
+                0x0e : ('asl', abs, 6),
+                0x0f : ('slo', abs, 1),
+                0x10 : ('bpl', rel, 2),
+                0x11 : ('ora', idix, 5),
+                0x13 : ('slo', idix, 1),
+                0x14 : ('nop', zpx, 1),
+                0x15 : ('ora', zpx, 3),
+                0x16 : ('asl', zpx, 6),
+                0x17 : ('slo', zpx, 1),
+                0x18 : ('clc', imp, 2),
+                0x19 : ('ora', absy, 4),
+                0x1a : ('nop', imp, 1),
+                0x1b : ('slo', absy, 1),
+                0x1c : ('nop', absx, 1),
+                0x1d : ('ora', absx, 4),
+                0x1e : ('asl', absx, 7),
+                0x1f : ('slo', absx, 1),
+                0x20 : ('jsr', abs, 6),
+                0x21 : ('and_', ixid, 6),
+                0x23 : ('rla', ixid, 1),
+                0x24 : ('bit', zp, 3),
+                0x25 : ('and_', zp, 2),
+                0x26 : ('rol', zp, 5),
+                0x27 : ('rla', zp, 1),
+                0x28 : ('plp', imp, 4),
+                0x29 : ('and_', imm, 2),
+                0x2a : ('rol_a', a, 2),
+                0x2c : ('bit', abs, 4),
+                0x2d : ('and_', abs, 4),
+                0x2e : ('rol', abs, 6),
+                0x2f : ('rla', abs, 1),
+                0x30 : ('bmi', rel, 2),
+                0x31 : ('and_', idix, 5),
+                0x33 : ('rla', idix, 1),
+                0x34 : ('nop', zpx, 1),
+                0x35 : ('and_', zpx, 3),
+                0x36 : ('rol', zpx, 6),
+                0x37 : ('rla', zpx, 1),
+                0x38 : ('sec', imp, 2),
+                0x39 : ('and_', absy, 4),
+                0x3a : ('nop', imp, 1),
+                0x3b : ('rla', absy, 1),
+                0x3c : ('nop', absx, 1),
+                0x3d : ('and_', absx, 4),
+                0x3e : ('rol', absx, 7),
+                0x3f : ('rla', absx, 1),
+                0x40 : ('rti', imp, 6),
+                0x41 : ('eor', ixid, 6),
+                0x43 : ('sre', ixid, 1),
+                0x44 : ('nop', zp, 1),
+                0x45 : ('eor', zp, 3),
+                0x46 : ('lsr', zp, 5),
+                0x47 : ('sre', zp, 1),
+                0x48 : ('pha', imp, 3),
+                0x49 : ('eor', imm, 2),
+                0x4a : ('lsr_a', a, 2),
+                0x4c : ('jmp', abs, 3),
+                0x4d : ('eor', abs, 4),
+                0x4e : ('lsr', abs, 6),
+                0x4f : ('sre', abs, 1),
+                0x50 : ('bvc', rel, 2),
+                0x51 : ('eor', idix, 5),
+                0x53 : ('sre', idix, 1),
+                0x54 : ('nop', zpx, 1),
+                0x55 : ('eor', zpx, 4),
+                0x56 : ('lsr', zpx, 6),
+                0x57 : ('sre', zpx, 1),
+                0x58 : ('cli', imp, 2),
+                0x59 : ('eor', absy, 4),
+                0x5a : ('nop', imp, 1),
+                0x5b : ('sre', absy, 1),
+                0x5c : ('nop', absx, 1),
+                0x5d : ('eor', absx, 4),
+                0x5e : ('lsr', absx, 7),
+                0x5f : ('sre', absx, 1),
+                0x60 : ('rts', imp, 6),
+                0x61 : ('adc', ixid, 6),
+                0x63 : ('rra', ixid, 1),
+                0x64 : ('nop', zp, 1),
+                0x65 : ('adc', zp, 3),
+                0x66 : ('ror', zp, 5),
+                0x67 : ('rra', zp, 1),
+                0x68 : ('pla', imp, 4),
+                0x69 : ('adc', imm, 2),
+                0x6a : ('ror_a', a, 2),
+                0x6c : ('jmp', absi, 5),
+                0x6d : ('adc', abs, 4),
+                0x6e : ('ror', abs, 6),
+                0x6f : ('rra', abs, 1),
+                0x70 : ('bvs', rel, 2),
+                0x71 : ('adc', idix, 5),
+                0x73 : ('rra', idix, 1),
+                0x74 : ('nop', zpx, 1),
+                0x75 : ('adc', zpx, 4),
+                0x76 : ('ror', zpx, 6),
+                0x77 : ('rra', zpx, 1),
+                0x78 : ('sei', imp, 2),
+                0x79 : ('adc', absy, 4),
+                0x7a : ('nop', imp, 1),
+                0x7b : ('rra', absy, 1),
+                0x7c : ('nop', absx, 1),
+                0x7d : ('adc', absx, 4),
+                0x7e : ('ror', absx, 7),
+                0x7f : ('rra', absx, 1),
+                0x80 : ('nop', imm, 1),
+                0x81 : ('sta', ixid, 6),
+                0x83 : ('sax', ixid, 1),
+                0x84 : ('sty', zp, 3),
+                0x85 : ('sta', zp, 3),
+                0x86 : ('stx', zp, 3),
+                0x87 : ('sax', zp, 1),
+                0x88 : ('dey', imp, 2),
+                0x8a : ('txa', imp, 2),
+                0x8c : ('sty', abs_st, 4),
+                0x8d : ('sta', abs_st, 4),
+                0x8e : ('stx', abs_st, 4),
+                0x8f : ('sax', abs, 1),
+                0x90 : ('bcc', rel, 2),
+                0x91 : ('sta', idix, 6),
+                0x94 : ('sty', zpx, 4),
+                0x95 : ('sta', zpx, 4),
+                0x96 : ('stx', zpy, 4),
+                0x97 : ('sax', zpy, 1),
+                0x98 : ('tya', imp, 2),
+                0x99 : ('sta', absy, 5),
+                0x9a : ('txs', imp, 2),
+                0x9d : ('sta', absx, 5),
+                0xa0 : ('ldy', imm, 2),
+                0xa1 : ('lda', ixid, 6),
+                0xa2 : ('ldx', imm, 2),
+                0xa3 : ('lax', ixid, 1),
+                0xa4 : ('ldy', zp, 3),
+                0xa5 : ('lda', zp, 3),
+                0xa6 : ('ldx', zp, 3),
+                0xa7 : ('lax', zp, 1),
+                0xa8 : ('tay', imp, 2),
+                0xa9 : ('lda', imm, 2),
+                0xaa : ('tax', imp, 2),
+                0xac : ('ldy', abs, 4),
+                0xad : ('lda', abs, 4),
+                0xae : ('ldx', abs, 4),
+                0xaf : ('lax', abs, 1),
+                0xb0 : ('bcs', rel, 2),
+                0xb1 : ('lda', idix, 5),
+                0xb3 : ('lax', idix, 1),
+                0xb4 : ('ldy', zpx, 4),
+                0xb5 : ('lda', zpx, 4),
+                0xb6 : ('ldx', zpy, 4),
+                0xb7 : ('lax', zpy, 1),
+                0xb8 : ('clv', imp, 2),
+                0xb9 : ('lda', absy, 4),
+                0xba : ('tsx', imp, 2),
+                0xbc : ('ldy', absx, 4),
+                0xbd : ('lda', absx, 4),
+                0xbe : ('ldx', absy, 4),
+                0xbf : ('lax', absy, 1),
+                0xc0 : ('cpy', imm, 2),
+                0xc1 : ('cmp', ixid, 6),
+                0xc3 : ('dcp', ixid, 1),
+                0xc4 : ('cpy', zp, 3),
+                0xc5 : ('cmp', zp, 3),
+                0xc6 : ('dec', zp, 5),
+                0xc7 : ('dcp', zp, 1),
+                0xc8 : ('iny', imp, 2),
+                0xc9 : ('cmp', imm, 2),
+                0xca : ('dex', imp, 2),
+                0xcc : ('cpy', abs, 4),
+                0xcd : ('cmp', abs, 4),
+                0xce : ('dec', abs, 6),
+                0xcf : ('dcp', abs, 1),
+                0xd0 : ('bne', rel, 2),
+                0xd1 : ('cmp', idix, 5),
+                0xd3 : ('dcp', idix, 1),
+                0xd4 : ('nop', zpx, 1),
+                0xd5 : ('cmp', zpx, 4),
+                0xd6 : ('dec', zpx, 6),
+                0xd7 : ('dcp', zpx, 1),
+                0xd8 : ('cld', imp, 2),
+                0xd9 : ('cmp', absy, 4),
+                0xda : ('nop', imp, 1),
+                0xdb : ('dcp', absy, 1),
+                0xdc : ('nop', absx, 1),
+                0xdd : ('cmp', absx, 4),
+                0xde : ('dec', absx, 7),
+                0xdf : ('dcp', absx, 1),
+                0xe0 : ('cpx', imm, 2),
+                0xe1 : ('sbc', ixid, 6),
+                0xe3 : ('isb', ixid, 1),
+                0xe4 : ('cpx', zp, 3),
+                0xe5 : ('sbc', zp, 3),
+                0xe6 : ('inc', zp, 5),
+                0xe7 : ('isb', zp, 1),
+                0xe8 : ('inx', imp, 2),
+                0xe9 : ('sbc', imm, 2),
+                0xea : ('nop', imp, 2),
+                0xeb : ('sbc', imm, 1),
+                0xec : ('cpx', abs, 4),
+                0xed : ('sbc', abs, 4),
+                0xee : ('inc', abs, 6),
+                0xef : ('isb', abs, 1),
+                0xf0 : ('beq', rel, 2),
+                0xf1 : ('sbc', idix, 5),
+                0xf3 : ('isb', idix, 1),
+                0xf4 : ('nop', zpx, 1),
+                0xf5 : ('sbc', zpx, 4),
+                0xf6 : ('inc', zpx, 6),
+                0xf7 : ('isb', zpx, 1),
+                0xf8 : ('sed', imp, 2),
+                0xf9 : ('sbc', absy, 4),
+                0xfa : ('nop', imp, 1),
+                0xfb : ('isb', absy, 1),
+                0xfc : ('nop', absx, 1),
+                0xfd : ('sbc', absx, 4),
+                0xfe : ('inc', absx, 7),
+                0xff : ('isb', absx, 7),
+                }
     type = 'nop'
     opcode = 0x00 
     addr_mode = ''
@@ -882,94 +952,15 @@ class Instruction(object):
         self.opcode = op
         self.illegal = False
         try:
-            self.op, self.addr_mode, self.cycles = self.opcodes[op]
-            if self.op[-1:] == '*':
-                self.op = self.op [:-1]
-                self.illegal = True
+            self.op, self.parse_operand, self.cycles = self.opcodes[op]
+            #if self.op[-1:] == '*':
+            #    self.op = self.op [:-1]
+            #    self.illegal = True
         except:
             print 'unsupported opcode: ' + hex2(op)
             sys.exit(1)
         self.addr_len = 0
-    def parse_operand(self, addr, mach):
-        #TODO fix horrible don't read on 'st' hack
-        self.args = addr
-        if self.addr_mode == 'imm2':
-            self.operand = addr[0] + (addr[1] << 8)
-            self.addr_len = 2
-        elif self.addr_mode == 'imm':
-            self.operand = addr[0]
-            self.addr_len = 1
-        elif self.addr_mode in ['imp', 'a']:
-            self.operand = None
-            self.addr_len = 0
-        elif self.addr_mode == 'zp':
-            self.addr = addr[0]
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 1
-        elif self.addr_mode == 'abs':
-            self.addr = addr[0] + (addr[1] << 8)
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 2
-        elif self.addr_mode == 'absi':
-            self.i_addr = addr[0] + (addr[1] << 8)
-            self.addr = (mach.get_mem(self.i_addr) 
-                    + (mach.get_mem(((self.i_addr+1) & 0xff) 
-                        + (self.i_addr & 0xff00)) << 8))
-            self.addr_len = 2
-        elif self.addr_mode == 'absy':
-            self.i_addr = addr[0] + (addr[1] << 8)
-            self.addr = (self.i_addr + mach.y) & 0xffff
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 2
-            if self.i_addr & 0xff00 != self.addr & 0xff00:
-                self.cycles += 1
-        elif self.addr_mode == 'absx':
-            self.i_addr = addr[0] + (addr[1] << 8)
-            self.addr = (self.i_addr + mach.x) & 0xffff
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 2
-            if self.i_addr & 0xff00 != self.addr & 0xff00:
-                self.cycles += 1
-        elif self.addr_mode == 'rel':
-            off = addr[0] if addr[0] < 0x80 else addr[0] - 0x100
-            self.operand = (off + mach.pc + 1) 
-            self.addr_len = 1
-        elif self.addr_mode == 'ixid':
-            self.i_addr = (addr[0] + mach.x) & 0xff
-            self.addr = (mach.get_mem(self.i_addr) + 
-                    (mach.get_mem((self.i_addr+1) & 0xff) << 8))
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 1
-        elif self.addr_mode == 'idix':
-            self.i_addr = addr[0]
-            self.addr = (mach.get_mem(self.i_addr) +
-                    (mach.get_mem((self.i_addr+1) & 0xff) << 8)) + mach.y
-            self.addr &= 0xffff
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 1
-            if self.addr & 0xff00 != (self.addr - mach.y) & 0xff00:
-                self.cycles += 1
-        elif self.addr_mode == 'zpx':
-            self.i_addr = addr[0]
-            self.addr = (self.i_addr + mach.x) & 0xff
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 1
-        elif self.addr_mode == 'zpy':
-            self.i_addr = addr[0]
-            self.addr = (self.i_addr + mach.y) & 0xff
-            if self.op[:2] != 'st':
-                self.operand = mach.get_mem(self.addr)
-            self.addr_len = 1
-        else:
-            print 'Error, unrecognized addressing mode'
-            sys.exit(1)
+
     def __repr__(self):
         #TODO rewrite
         rep = ''
@@ -1041,8 +1032,18 @@ class Rom(object):
         self.prg_ram = array('B')
         self.prg_ram.fromlist([0xff] * (8192 * 1 if not self.prg_ram_size else self.prg_ram_size))
 
+def test(rom, mach):
+    ppu = mach.ppu
+    for i in range(0x4000):
+        ppu.vaddr = i
+        ppu.address_to_currents()
+        ppu.currents_to_address()
+        assert(ppu.vaddr == i)
+    ppu.vaddr = 0
 
 filename = sys.argv[1]
+
 rom = Rom(open(filename, 'rb'))
 mach = Machine(rom)
+test(rom, mach)
 cProfile.run('mach.run()', 'prof')
