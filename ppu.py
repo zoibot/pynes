@@ -340,23 +340,28 @@ class PPU(object):
             return
         self.current_fx = self.stored_fx
         self.current_xt = self.stored_xt
+        xt = self.current_xt
         cur_nt = self.ntables[self.current_ynt + self.current_ynt + self.current_xnt]
+        g_b = cur_nt.get_byte
+        g_a = cur_nt.get_attrib
+        pat_get = self.patterns.get
+        bg_pat_addr = self.bg_pat_addr
+        x = self.current_fx
         for tile in xrange(32):
-            t = self.patterns.get(self.bg_pat_addr + 0x10*cur_nt.get_byte(self.current_xt, self.current_yt), self.current_fy)
-            att = cur_nt.get_attrib(self.current_xt, self.current_yt)
-            x = (tile << 3)-self.current_fx
-            sx = max(0, -x)
-            for i in xrange(sx, 8):
+            t = pat_get(bg_pat_addr + 0x10*g_b(xt, self.current_yt), self.current_fy)
+            att = g_a(xt, self.current_yt)
+            for i in xrange(8):
                 col = t[i]
                 if col:
                     col += att
                 self.nes.pixels[x+i, self.last_sl] = self.palette.bg_palette[col]
-            if self.current_xt == 32:
-                self.current_xt = 0
+            if xt == 32:
+                xt = 0
                 self.current_xnt = (self.current_xnt + 1)%2
                 cur_nt = self.ntables[self.current_ynt + self.current_ynt + self.current_xnt]
             else:
-                self.current_xt += 1
+                xt += 1
+            x += 8
         self.current_fy += 1
         if self.current_fy == 8:
             self.current_fy  = 0

@@ -13,6 +13,14 @@ import ppu
 import cpu
 from util import *
 
+N = 1 << 7
+V = 1 << 6
+B = 1 << 4
+D = 1 << 3
+I = 1 << 2
+Z = 1 << 1
+C = 1 << 0
+
 class Machine(object):
     '''Class for actually simulating the machine'''
 #CPU
@@ -35,23 +43,16 @@ class Machine(object):
     read_input_state = 8
     keys = [0] * 8
 
-    flags = { 'N': 1 << 7,
-              'V': 1 << 6,
-              'B': 1 << 4,
-              'D': 1 << 3,
-              'I': 1 << 2,
-              'Z': 1 << 1,
-              'C': 1 << 0 }
     def set_flag(self, flag, val):
         if val:
-            self.p = self.p | self.flags[flag]
+            self.p = self.p | flag
         else:
-            self.p = self.p & (~self.flags[flag])
+            self.p = self.p & (~flag)
     def get_flag(self, flag):
-        return self.p & self.flags[flag]
+        return self.p & flag
     def set_nz(self, val):
-        self.set_flag('Z', val == 0)
-        self.set_flag('N', val & (1 << 7))
+        self.set_flag(Z, val == 0)
+        self.set_flag(N, val & (1 << 7))
     
     def next_byte(self):
         x = self.get_code_mem(self.pc)#self.rom.prg_rom[self.pc & 0x3fff]
@@ -401,7 +402,7 @@ class Machine(object):
     def rts(self, inst):
         self.pc = self.pop2()+1
     def rti(self, inst):
-        self.p = (self.pop() | (1 << 5)) & ~(self.flags['B'])
+        self.p = (self.pop() | (1 << 5)) & ~(B)
         self.pc = self.pop2()
     def brk(self, inst):
         self.pc += 1
@@ -415,33 +416,33 @@ class Machine(object):
             self.pc = inst.operand
 
     def bcs(self, inst):
-        self.branch(self.get_flag('C'), inst)
+        self.branch(self.get_flag(C), inst)
     def bcc(self, inst):
-        self.branch(not self.get_flag('C'), inst)
+        self.branch(not self.get_flag(C), inst)
     def beq(self, inst):
-        self.branch(self.get_flag('Z'), inst)
+        self.branch(self.get_flag(Z), inst)
     def bne(self, inst):
-        self.branch(not self.get_flag('Z'), inst)
+        self.branch(not self.get_flag(Z), inst)
     def bvs(self, inst):
-        self.branch(self.get_flag('V'), inst)
+        self.branch(self.get_flag(V), inst)
     def bvc(self, inst):
-        self.branch(not self.get_flag('V'), inst)
+        self.branch(not self.get_flag(V), inst)
     def bpl(self, inst):
-        self.branch(not self.get_flag('N'), inst)
+        self.branch(not self.get_flag(N), inst)
     def bmi(self, inst):
-        self.branch(self.get_flag('N'), inst)
+        self.branch(self.get_flag(N), inst)
     def bit(self, inst):
         m = self.get_mem(inst.addr)
-        self.set_flag('N', m & (1 << 7))
-        self.set_flag('V', m & (1 << 6))
-        self.set_flag('Z', m & self.a == 0)
+        self.set_flag(N, m & (1 << 7))
+        self.set_flag(V, m & (1 << 6))
+        self.set_flag(Z, m & self.a == 0)
 
     def compare(self, a, b):
         ua = a if a < 0x80 else (a - 0x100)
         ub = b if b < 0x80 else (b - 0x100)
-        self.set_flag('N', (ua - ub) & (1 << 7) )
-        self.set_flag('Z', ua == ub)
-        self.set_flag('C', a >= b)
+        self.set_flag(N, (ua - ub) & (1 << 7) )
+        self.set_flag(Z, ua == ub)
+        self.set_flag(C, a >= b)
     def cmp(self, inst):
         self.compare(self.a, inst.operand)
     def cpy(self, inst):
@@ -450,19 +451,19 @@ class Machine(object):
         self.compare(self.x, inst.operand)
 
     def clc(self, inst):
-        self.set_flag('C', False)
+        self.set_flag(C, False)
     def cld(self, inst):
-        self.set_flag('D', False)
+        self.set_flag(D, False)
     def clv(self, inst):
-        self.set_flag('V', False)
+        self.set_flag(V, False)
     def cli(self, inst):
-        self.set_flag('I', False)
+        self.set_flag(I, False)
     def sed(self, inst):
-        self.set_flag('D', True)
+        self.set_flag(D, True)
     def sec(self, inst):
-        self.set_flag('C', True)
+        self.set_flag(C, True)
     def sei(self, inst):
-        self.set_flag('I', True)
+        self.set_flag(I, True)
 
     def lda(self, inst):
         self.a = inst.operand
@@ -490,9 +491,9 @@ class Machine(object):
         self.set_mem(inst.addr, self.a & self.x)
 
     def php(self, inst):
-        self.push(self.p | self.flags['B'])
+        self.push(self.p | B)
     def plp(self, inst):
-        self.p = (self.pop() | (1 << 5)) & ~(self.flags['B'])
+        self.p = (self.pop() | (1 << 5)) & ~(B)
     def pla(self, inst):
         self.a = self.pop()
         self.set_nz(self.a)
@@ -512,22 +513,22 @@ class Machine(object):
     def adc(self, inst):
         a7 = self.a & (1 << 7)
         m7 = inst.operand & (1 << 7)
-        self.a = self.a + inst.operand + (1 if self.get_flag('C') else 0)
-        self.set_flag('C', self.a > 0xff)
+        self.a = self.a + inst.operand + (1 if self.get_flag(C) else 0)
+        self.set_flag(C, self.a > 0xff)
         self.a = self.a & 0xff
         self.set_nz(self.a)
         r7 = self.a & (1 << 7)
-        self.set_flag('V', not ((a7 != m7) or (a7 == m7 == r7)))
+        self.set_flag(V, not ((a7 != m7) or (a7 == m7 == r7)))
     def sbc(self, inst):
         a7 = self.a & (1 << 7)
         m7 = inst.operand & (1 << 7)
         old_a = self.a
-        self.a = self.a - inst.operand - (0 if self.get_flag('C') else 1)
-        self.set_flag('C', old_a >= inst.operand)
+        self.a = self.a - inst.operand - (0 if self.get_flag(C) else 1)
+        self.set_flag(C, old_a >= inst.operand)
         self.a = self.a & 0xff
         self.set_nz(self.a)
         r7 = self.a & (1 << 7)
-        self.set_flag('V', not ((a7 == m7) or (a7 != m7 and r7 == a7)))
+        self.set_flag(V, not ((a7 == m7) or (a7 != m7 and r7 == a7)))
 
     def inx(self, inst):
         self.x += 1
@@ -564,21 +565,21 @@ class Machine(object):
         self.sbc(inst)
 
     def lsr_a(self, inst):
-        self.set_flag('C', self.a & (1))
+        self.set_flag(C, self.a & (1))
         self.a >>= 1
         self.set_nz(self.a)
     def lsr(self, inst):
-        self.set_flag('C', inst.operand & (1))
+        self.set_flag(C, inst.operand & (1))
         inst.operand >>= 1
         self.set_mem(inst.addr, inst.operand)
         self.set_nz(inst.operand)
     def asl_a(self, inst):
-        self.set_flag('C', self.a & (1 << 7))
+        self.set_flag(C, self.a & (1 << 7))
         self.a <<= 1
         self.a &= 0xff
         self.set_nz(self.a)
     def asl(self, inst):
-        self.set_flag('C', inst.operand & (1 << 7))
+        self.set_flag(C, inst.operand & (1 << 7))
         inst.operand <<= 1
         inst.operand &= 0xff
         self.set_mem(inst.addr, inst.operand)
@@ -586,27 +587,27 @@ class Machine(object):
     def ror_a(self, inst):
         new_c = self.a & 1
         self.a >>= 1
-        self.a |= (1 << 7) if self.get_flag('C') else 0
-        self.set_flag('C', new_c)
+        self.a |= (1 << 7) if self.get_flag(C) else 0
+        self.set_flag(C, new_c)
         self.set_nz(self.a)
     def ror(self, inst):
         new_c = inst.operand & 1
         inst.operand >>= 1
-        inst.operand |= (1 << 7) if self.get_flag('C') else 0
-        self.set_flag('C', new_c)
+        inst.operand |= (1 << 7) if self.get_flag(C) else 0
+        self.set_flag(C, new_c)
         self.set_mem(inst.addr, inst.operand)
         self.set_nz(inst.operand)
     def rol_a(self, inst):
         new_c = self.a & (1 << 7)
         self.a <<= 1
-        self.a |= 1 if self.get_flag('C') else 0
+        self.a |= 1 if self.get_flag(C) else 0
         self.a &= 0xff
-        self.set_flag('C', new_c)
+        self.set_flag(C, new_c)
         self.set_nz(self.a)
     def rol(self, inst):
         new_c = inst.operand & (1 << 7)
         inst.operand <<= 1
-        inst.operand |= 1 if self.get_flag('C') else 0
+        inst.operand |= 1 if self.get_flag(C) else 0
         inst.operand &= 0xff
         self.set_flag('C', new_c)
         self.set_mem(inst.addr, inst.operand)
@@ -656,8 +657,9 @@ class Instruction(object):
         self.imp(mach)
     def zp(self, mach):
         self.addr = mach.next_byte()
-        if self.op[:2] != 'st':
-            self.operand = mach.get_mem(self.addr)
+        self.operand = mach.get_mem(self.addr)
+    def zp_st(self, mach):
+        self.addr = mach.next_byte()
     def abs(self, mach):
         self.addr = mach.next_word()
         self.operand = mach.get_mem(self.addr)
@@ -833,9 +835,9 @@ class Instruction(object):
                 0x80 : ('nop', imm, 1),
                 0x81 : ('sta', ixid, 6),
                 0x83 : ('sax', ixid, 1),
-                0x84 : ('sty', zp, 3),
-                0x85 : ('sta', zp, 3),
-                0x86 : ('stx', zp, 3),
+                0x84 : ('sty', zp_st, 3),
+                0x85 : ('sta', zp_st, 3),
+                0x86 : ('stx', zp_st, 3),
                 0x87 : ('sax', zp, 1),
                 0x88 : ('dey', imp, 2),
                 0x8a : ('txa', imp, 2),
