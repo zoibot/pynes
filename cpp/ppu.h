@@ -1,6 +1,8 @@
 #ifndef PPU_H
 #define PPU_H
 
+#include <list>
+
 #include <SFML/Window.hpp>
 #include <SFML/Graphics.hpp>
 
@@ -31,24 +33,27 @@ private:
 	byte mem_buf;
 	word* mirror_table;
 	bool latch;
-	byte* obj_mem;
-	word obj_addr;
 	byte pmask;
 	byte pstat;
 	byte pctrl;
 	word vaddr, taddr;
 	//position
-	byte sl;
+	int sl;
 	word cyc;
 	byte xoff, fine_x;
 	int cycle_count;
+    list<Sprite> cur_sprs;
+    //helpers
 	void do_vblank(bool rendering_enabled);
 	void render_pixels(byte x, byte y, byte num);
 	void new_scanline();
 	void draw_frame();
 	byte get_mem_mirrored(word addr);
+    void set_mirror(word from, word to, word size);
 	
 public:
+	byte* obj_mem;
+	word obj_addr;
     void run();
 	void write_register(byte num, byte val);
 	byte read_register(byte num);

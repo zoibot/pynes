@@ -9,7 +9,7 @@ Rom::Rom(istream& f) {
     byte header[16];
     f.read((char*)header, 16);
     if (strncmp((char*)header, "NES\x1a", 4) == 0) {
-        cout << "header constant OK!" << endl;
+       // cout << "header constant OK!" << endl;
     } else {
         cout << "bad rom...";
     }
@@ -25,7 +25,7 @@ Rom::Rom(istream& f) {
     //flags9,flags10
     prg_rom = new byte[16384 * prg_size];
     f.read((char*)prg_rom, 16384 * prg_size);
-    cout << int(prg_size) << endl;
+    //cout << int(prg_size) << endl;
     bool chr_ram = (chr_size == 0);
     if(chr_ram) {
         chr_rom = new byte[8192];
@@ -38,6 +38,6 @@ Rom::Rom(istream& f) {
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
     }
-	cout << "Rom loaded successfully!" << endl;
+	//cout << "Rom loaded successfully!" << endl;
 
 }

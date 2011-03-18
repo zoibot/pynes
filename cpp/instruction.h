@@ -16,7 +16,7 @@ enum Op { BRK, ORA, ASL, SLO, PHP, ASL_A, NOP, BPL, CLC, JSR, AND, RLA, TSX,
 			  STA, SAX, STY, STX, DEY, DEX, TXA, BCC, TYA, TXS, LDY, LDA, 
 			  LDX, LAX, TAY, TAX, BCS, CLV, CPY, CPX, CMP, DEC, DCP, INY,
 			  INX, BNE, CLD, SBC, ISB, INC, BEQ, SED };
-static char *opnames[] = { "BRK", "ORA", "ASL", "SLO", "PHP", "ASL", "NOP", "BPL", "CLC", 
+const char opnames[][4] = { "BRK", "ORA", "ASL", "SLO", "PHP", "ASL", "NOP", "BPL", "CLC", 
 					"JSR", "AND", "RLA", "TSX", "BIT", "ROL", "PLP", "ROL", "BMI",
 					"SEC", "RTI", "EOR", "SRE", "PHA", "LSR", "PLA", "LSR", "JMP",
 					"BVC", "CLI", "RTS", "ADC", "ROR", "BVS", "RRA", "SEI", "ROR",

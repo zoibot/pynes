@@ -17,11 +17,11 @@ int main(int argc, char *argv[]) {
 		cout << "nope" << endl;
 		exit(1);
 	}
+    bool debug = argc > 2;
 	ifstream romf(argv[1], ifstream::binary | ifstream::in);
 	Rom rom(romf);
 	Machine mach(&rom);
-	mach.run();
-
+	mach.run(debug);
 	cin.get();
     return 0;
 }

@@ -76,13 +76,13 @@ const int colors[] = {
 0x000000
 };
 
-static string hex2(byte b) {
+inline string hex2(byte b) {
 	stringstream out;
 	out << hex << uppercase << setfill('0') << setw(2) << int(b);
 	return out.str();
 }
 
-static string hex4(word w) {
+inline string hex4(word w) {
 	stringstream out;
 	out << hex << uppercase << setfill('0') << setw(4) << int(w);
 	return out.str();

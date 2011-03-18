@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include "ppu.h"
 #include "machine.h"
 
@@ -5,6 +7,7 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
 	this->mach = mach;
 	this->wind = wind;
 	screen.Create(256, 240);
+    screen.SetSmooth(false);
 	vaddr = 0;
 	obj_addr = 0;
 	mem = new byte[0x4000];
@@ -16,6 +19,9 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
 	mirror_table = new word[0x4000];
 	for(int i = 0; i < 0x4000; i++)
 		mirror_table[i] = i;
+    set_mirror(0x3000, 0x2000, 0xf00);
+    set_mirror(0x2800, 0x2000, 0x400);
+    set_mirror(0x2c00, 0x2400, 0x400);
 }
 
 byte PPU::read_register(byte num) {
@@ -44,6 +50,7 @@ byte PPU::read_register(byte num) {
 		vaddr &= 0x3fff;
 		return ret;
 	}
+    return 0;
 }
 
 void PPU::write_register(byte num, byte val) {
@@ -100,6 +107,12 @@ void PPU::write_register(byte num, byte val) {
 	}
 }
 
+void PPU::set_mirror(word from, word to, word size) {
+    for(word i = 0; i < size; i++) {
+        mirror_table[from+i] = to+i;
+    }
+}
+
 byte PPU::get_mem_mirrored(word addr) {
 	return get_mem(mirror_table[addr]);
 }
@@ -109,14 +122,17 @@ byte PPU::get_mem(word addr) {
 		return mach->rom->chr_rom[addr];
 	} else if(addr < 0x3000) {
 		return mem[mirror_table[addr]];
-	}
+	} else if(addr < 0x3f00) {
+        return get_mem(addr - 0x1000);
+    } else {
+        return mem[mirror_table[addr]];
+    }
 }
 
 void PPU::set_mem(word addr, byte val) {
 	if(addr < 0x2000) {
 		//should set rom???
 	} else {
-		cout << addr << " " << val << endl;
 		mem[mirror_table[addr]] = val;
 	}
 }
@@ -135,6 +151,13 @@ void PPU::new_scanline() {
 	vaddr |= ((fineY+1)&7) << 12;
 	fine_x = xoff;
 	//sprites
+    cur_sprs.clear();
+    for(int i = 0; i < 64; i++) {
+        Sprite s = ((Sprite*)obj_mem)[i];
+        if(s.y <= (sl-1) && (sl-1) <= s.y+8) {
+            cur_sprs.push_back(s);
+        }
+    }
 }
 
 void PPU::do_vblank(bool rendering_enabled) {
@@ -165,25 +188,26 @@ void PPU::render_pixels(byte x, byte y, byte num) {
 	}
 	while(num) {
 		word nt_addr = 0x2000 | (vaddr & 0xfff);
-		word at_base = nt_addr & (~0xfff) + 0x3c2;
-		byte nt_val = mem[nt_addr];
+		word at_base = (nt_addr & (~0xfff)) + 0x3c2;
+		byte nt_val = get_mem(nt_addr);
 		word pt_addr = (nt_val << 4) + base_pt_addr;
 		byte row = (nt_addr >> 6) & 1;
 		byte col = (nt_addr & 2) >> 1;
-		byte at_val = mem[at_base + ((nt_addr & 0x3ff)>>4)];
+		byte at_val = get_mem(at_base + ((nt_addr & 0x3ff)>>4));
 		at_val >>= 4 * row + 2 * col;
 		at_val &= 3;
 		at_val <<= 2;
-		byte hi = mem[pt_addr+8];
-		byte lo = mem[pt_addr];
+		byte hi = get_mem(pt_addr+8+fineY);
+		byte lo = get_mem(pt_addr+fineY);
 		hi >>= (8-fine_x);
+		hi &= 1;
 		hi <<= 1;
-		hi &= 2;
 		lo >>= (8-fine_x);
 		lo &= 1;
-		word coli = 0x3f00 | at_val | hi | lo;
-		int color = colors[mem[coli]];
-		//cout << int(xoff) << int(y) << int(mem[coli]) << endl;
+        word coli = 0;
+        if(hi|lo)
+		    coli = 0x3f00 | at_val | hi | lo;
+		int color = colors[get_mem(coli)];
 		screen.SetPixel(xoff, y, sf::Color((color & 0xff0000)>>16, (color & 0x00ff00) >> 8, color & 0x0000ff));
 		fine_x++;
 		fine_x &= 7;
@@ -201,7 +225,7 @@ void PPU::render_pixels(byte x, byte y, byte num) {
 }
 
 void PPU::draw_frame() {
-	sl = 0;
+	sl = -1;
 	wind->Draw(sf::Sprite(screen));
 	//process events
 	sf::Event event;

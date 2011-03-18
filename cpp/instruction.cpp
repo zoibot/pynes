@@ -54,8 +54,21 @@ ostream& operator <<(ostream &out, Instruction &inst) {
 	case ABS_ST:
 		out << "$" << hex4(inst.addr) << "                       ";
 		break;
-	//case ZPX:
-	//case ZPY:
+    case A:
+        out << "A" << "                           ";
+        break;
+    case ZPX:
+        out << "($" << hex2(inst.args[0]) << ",X) @ " << hex2(inst.addr) << "                ";
+        break;
+	case ZPY:
+        out << "($" << hex2(inst.args[0]) << ",Y) @ " << hex2(inst.addr) << "                ";
+        break;
+    case IDIX:
+        out << "($" << hex2(inst.args[0]) << "),Y     " << hex2(inst.operand) << " @ " << hex2(inst.i_addr) << "         ";
+        break;
+    case IXID:
+        out << "($" << hex2(inst.args[0]) << ",X) @ " << hex2(inst.i_addr) << "                ";
+        break;
 	default:
 		out << "                            ";
 	}
@@ -99,7 +112,7 @@ void Instruction::next_instruction() {
 		break;
 	case ABSI:
 		i_addr = mach->next_word();
-		addr = (mach->get_mem(i_addr) + mach->get_mem(((i_addr+1) & 0xff) | (i_addr & 0xff00)));
+		addr = mach->get_mem(i_addr) + ((mach->get_mem(((i_addr+1) & 0xff) | (i_addr & 0xff00))) << 8);
 		args[0] = i_addr & 0xff;
 		args[1] = (i_addr & 0xff00) >> 8;
 		arglen = 2;

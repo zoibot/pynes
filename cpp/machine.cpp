@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include "machine.h"
 
 void Machine::set_flag(byte flag, bool val) {
@@ -80,7 +82,7 @@ void Machine::set_mem(word addr, byte val) {
     } else if(addr < 0x4000) {
         ppu->write_register((addr - 0x2000)&7, val);
     } else if(addr < 0x4018) {
-        if(addr = 0x4016) {
+        if(addr == 0x4016) {
             if(val & 1) {
                 for(int i = 0; i < 8; i++) {
 					keys[i] = wind.GetInput().IsKeyDown(keymap[i]);
@@ -89,7 +91,11 @@ void Machine::set_mem(word addr, byte val) {
             read_input_state = 0;
         } else if (addr == 0x4014) {
             word start = val << 8;
-            word end = start + 0x100;
+            //word end = start + 0x100;
+            for(word v = 0; v < 0x100; v++) {
+                byte addr = v + ppu->obj_addr;
+                ppu->obj_mem[addr] = mem[start+v];
+            }
             //TODO ppu set obj mem
         }
         //ALU
@@ -131,7 +137,7 @@ Machine::Machine(Rom *rom) {
     this->rom = rom;
 	inst.mach = this;
     //Display
-    wind.Create(sf::VideoMode(256, 240), "SFML window");
+    wind.Create(sf::VideoMode(256, 240), "SFML window", sf::Style::Close);
     //print surface bits
     ppu = new PPU(this, &wind);
     //get pixel array from ppu
@@ -323,7 +329,7 @@ void Machine::execute_inst() {
 			result -= 1;
 		}
 		a = result & 0xff;
-		set_flag(C, old_a > inst.operand);
+		set_flag(C, old_a >= inst.operand);
 		set_nz(a);
 		r7 = a & (1 << 7);
 		set_flag(V, !((a7 == m7) || ((a7 != m7) && (r7 == a7))));
@@ -378,7 +384,7 @@ void Machine::execute_inst() {
 		set_flag(C, inst.operand & 1);
 		inst.operand >>= 1;
 		set_mem(inst.addr, inst.operand);
-		set_nz(a);
+		set_nz(inst.operand);
 		break;
 	case ASL_A:
 		set_flag(C, a & (1 << 7));
@@ -388,6 +394,8 @@ void Machine::execute_inst() {
 	case ASL:
 		set_flag(C, inst.operand & (1 << 7));
 		inst.operand <<= 1;
+        set_mem(inst.addr, inst.operand);
+        set_nz(inst.operand);
 		break;
 	case TSX:
 		x = s;
@@ -397,11 +405,11 @@ void Machine::execute_inst() {
 		s = x;
 		break;
 	case TYA:
-		y = a;
+		a = y;
 		set_nz(a);
 		break;
 	case TXA:
-		x = a;
+		a = x;
 		set_nz(a);
 		break;
 	case ROR_A:
@@ -453,21 +461,24 @@ void Machine::execute_inst() {
 	default:
 		cout << "Unsupported opcode! " << int(inst.opcode) << endl;
 		cout << inst.op.op << endl;
-		throw new exception("Unsupported opcode");
+		throw new runtime_error("Unsupported opcode");
 		break;
     }
 	cycle_count += inst.op.cycles + inst.extra_cycles;
 }
 
-void Machine::run() {
+void Machine::run(bool debug) {
 	reset();
-	//pc = 0xC000;
+    //pc = 0xc000;
 	cout << hex << uppercase;
+    //debug = true;
     while(1) {
 		try {
-			//cout << hex4(pc) << " ";
+            if(debug)
+			    cout << hex4(pc) << "  ";
 			inst.next_instruction();
-			//cout << inst << dump_regs() << endl; 
+            if(debug)
+			    cout << inst << dump_regs() << endl; 
 			execute_inst();
 			ppu->run();
 		} catch(...) {

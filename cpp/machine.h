@@ -2,6 +2,7 @@
 #define MACHINE_H
 
 #include <sstream>
+#include <stdexcept>
 
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
@@ -67,7 +68,7 @@ public:
     void reset();
     void nmi(word addr);
     void execute_inst();
-    void run();
+    void run(bool debug);
 
 	byte get_mem(word addr);
     byte get_code_mem(word addr);
