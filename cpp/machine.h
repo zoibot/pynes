@@ -1,61 +1,81 @@
-#include <ppu.h>
-#include <instruction.h>
+#ifndef MACHINE_H
+#define MACHINE_H
 
-const int keymap[8] = { sf::Key::Code.Left,
-                  sf::Key::Code.Right,
-                  sf::Key::Code.Up,
-                  sf::Key::Code.Down,
-                  sf::Key::Code.X, //b
-                  sf::Key::Code.Z, //a
-                  sf::Key::Code.Return, //Start
-                  sf::Key::Code.S, //Select
-                }
+#include <sstream>
+
+#include <SFML/Graphics.hpp>
+#include <SFML/Window.hpp>
+
+#include "ppu.h"
+#include "instruction.h"
+#include "rom.h"
+#include "util.h"
+
+const sf::Key::Code keymap[8] = { 
+				  sf::Key::Left,
+                  sf::Key::Right,
+                  sf::Key::Up,
+                  sf::Key::Down,
+                  sf::Key::X, //b
+                  sf::Key::Z, //a
+                  sf::Key::Return, //Start
+                  sf::Key::S, //Select
+                };
 
 class Machine {
-    int pc;
-    char a, s, p;
-    char x, y;
-    char *mem;
-    int cycle_count;
+    byte *mem;
     Instruction inst;
     //ppu
     PPU *ppu;
     sf::RenderWindow wind;
     //APU
     //input
-    char read_input_state = 0;
+    byte read_input_state;
     bool keys[8];
     //flags
-    const char N = 1 << 7;
-    const char V = 1 << 6;
-    const char B = 1 << 4;
-    const char D = 1 << 3;
-    const char I = 1 << 2;
-    const char Z = 1 << 1;
-    const char C = 1 << 0;
+    static const byte N = 1 << 7;
+    static const byte V = 1 << 6;
+    static const byte B = 1 << 4;
+    static const byte D = 1 << 3;
+    static const byte I = 1 << 2;
+    static const byte Z = 1 << 1;
+    static const byte C = 1 << 0;
 
-    void set_flag(char flag, bool val);
-    bool get_flag(char flag);
-    void set_nz(char val);
+    void set_flag(byte flag, bool val);
+    bool get_flag(byte flag);
+    void set_nz(byte val);
 
-    char next_byte();
-    char next_word();
-    char get_mem(short addr);
-    char get_code_mem(short addr);
-    void set_mem(addr, val);
+	void branch(bool cond, Instruction inst);
+	void compare(byte a, byte b);
 
-    void push2(val);
-    short pop2();
-    void push(val);
-    char pop();
+    void push2(word val);
+    word pop2();
+    void push(byte val);
+    byte pop();
 
     string dump_regs();
 
+public:
     Machine(Rom *rom);
+	   
+	int pc;
+    byte a, s, p;
+	byte x, y;
+	int cycle_count;
+	Rom *rom;
 
     void reset();
-    void nmi();
+    void nmi(word addr);
     void execute_inst();
     void run();
 
-}
+	byte get_mem(word addr);
+    byte get_code_mem(word addr);
+    void set_mem(word addr, byte val);
+
+	byte next_byte();
+    word next_word();
+
+};
+
+#endif //MACHINE_H

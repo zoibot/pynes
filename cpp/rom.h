@@ -1,12 +1,20 @@
-#include <iostream>
-/* Class for reading iNES files */
-class Rom {
-    char prg_size, ch_size;
-    char flags6, flags7;
-    char trainer[512];
-    char* prg_rom;
-    char* chr_rom;
-    char* prg_ram;
+#ifndef ROM_H
+#define ROM_H
 
-    Rom(istream f);
-}
+#include <iostream>
+using namespace std;
+#include "util.h"
+/* Class for reading iNES files */
+struct Rom {
+    byte prg_size, chr_size;
+	byte prg_ram_size;
+    byte flags6, flags7;
+    byte trainer[512];
+    byte* prg_rom;
+    byte* chr_rom;
+    byte* prg_ram;
+
+    Rom(istream& f);
+};
+
+#endif //ROM_H
