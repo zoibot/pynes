@@ -17,6 +17,10 @@ Rom::Rom(istream& f) {
     chr_size = header[5];
     flags6 = header[6];
     flags7 = header[7];
+    mapper = ((flags6 & 0xf0) >> 4) | (flags7 & 0xf0);
+    if(mapper != 0) {
+        cout << "Unsupported Mapper" << endl;
+    }
     prg_ram_size = header[8];
     if(flags6 & (1<<2)) {
         cout << "loading trainer" << endl;
@@ -25,7 +29,7 @@ Rom::Rom(istream& f) {
     //flags9,flags10
     prg_rom = new byte[16384 * prg_size];
     f.read((char*)prg_rom, 16384 * prg_size);
-    //cout << int(prg_size) << endl;
+    cout << int(prg_size) << endl;
     bool chr_ram = (chr_size == 0);
     if(chr_ram) {
         chr_rom = new byte[8192];
@@ -38,6 +42,6 @@ Rom::Rom(istream& f) {
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
     }
-	//cout << "Rom loaded successfully!" << endl;
+	cout << "Rom loaded successfully!" << endl;
 
 }

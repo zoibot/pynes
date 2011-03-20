@@ -42,7 +42,7 @@ private:
 	word cyc;
 	byte xoff, fine_x;
 	int cycle_count;
-    list<Sprite> cur_sprs;
+    list<Sprite*> cur_sprs;
     //helpers
 	void do_vblank(bool rendering_enabled);
 	void render_pixels(byte x, byte y, byte num);

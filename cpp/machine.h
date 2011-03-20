@@ -13,14 +13,14 @@
 #include "util.h"
 
 const sf::Key::Code keymap[8] = { 
-				  sf::Key::Left,
-                  sf::Key::Right,
+                  sf::Key::Z, //a
+                  sf::Key::X, //b
+                  sf::Key::S, //Select
+                  sf::Key::Return, //Start
                   sf::Key::Up,
                   sf::Key::Down,
-                  sf::Key::X, //b
-                  sf::Key::Z, //a
-                  sf::Key::Return, //Start
-                  sf::Key::S, //Select
+				  sf::Key::Left,
+                  sf::Key::Right,
                 };
 
 class Machine {

@@ -9,6 +9,7 @@ struct Rom {
     byte prg_size, chr_size;
 	byte prg_ram_size;
     byte flags6, flags7;
+    byte mapper;
     byte trainer[512];
     byte* prg_rom;
     byte* chr_rom;

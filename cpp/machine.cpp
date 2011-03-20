@@ -70,7 +70,10 @@ byte Machine::get_mem(word addr) {
 
 byte Machine::get_code_mem(word addr) {
     if(addr > 0x8000) {
-        return rom->prg_rom[addr & 0x3fff];
+        if(rom->prg_size == 1)
+            return rom->prg_rom[addr & 0x3fff];
+        else
+            return rom->prg_rom[addr - 0x8000];
     } else {
         return get_mem(addr);
     }
@@ -138,6 +141,7 @@ Machine::Machine(Rom *rom) {
 	inst.mach = this;
     //Display
     wind.Create(sf::VideoMode(256, 240), "SFML window", sf::Style::Close);
+    //wind.SetFramerateLimit(24);
     //print surface bits
     ppu = new PPU(this, &wind);
     //get pixel array from ppu
@@ -191,7 +195,8 @@ void Machine::execute_inst() {
 		break;
 	case BRK:
 		pc += 1;
-		nmi(0xfffe); // should set some flags i guess??
+        p |= B;
+		nmi(0xfffe); 
 		break;
 	case BCS:
 		branch(get_flag(C), inst);
@@ -254,6 +259,10 @@ void Machine::execute_inst() {
 		set_flag(I, true);
 		break;
 	case LDA:
+        /*if(inst.addr == 0x2002) {
+            cout << hex2(inst.operand) << endl;
+            cout << hex2(ppu->read_register(2)) << endl;
+        }*/
 		a = inst.operand;
 		set_nz(a);
 		break;
@@ -336,22 +345,18 @@ void Machine::execute_inst() {
 		break;
 	case INX:
 		x += 1;
-		x &= 0xff;
 		set_nz(x);
 		break;
 	case INY:
 		y += 1;
-		y &= 0xff;
 		set_nz(y);
 		break;
 	case DEX:
 		x -= 1;
-		x &= 0xff;
 		set_nz(x);
 		break;
 	case DEY:
 		y -= 1;
-		y &= 0xff;
 		set_nz(y);
 		break;
 	case INC:
@@ -454,10 +459,25 @@ void Machine::execute_inst() {
 		x = a;
 		set_nz(x);
 		break;
-	case SLO:
 	case RLA:
-	case SRE:
+		m = inst.operand & (1 << 7);
+		inst.operand <<= 1;
+		if(get_flag(C))
+			inst.operand |= 1;
+		set_flag(C, m);
+		set_mem(inst.addr, inst.operand);
+        a &= inst.operand;
+		set_nz(a);
+        break;
+	case SLO:
+		set_flag(C, inst.operand & (1 << 7));
+		inst.operand <<= 1;
+        set_mem(inst.addr, inst.operand);
+        a |= inst.operand;
+        set_nz(a);
+        break;
 	case RRA:
+	case SRE:
 	default:
 		cout << "Unsupported opcode! " << int(inst.opcode) << endl;
 		cout << inst.op.op << endl;
