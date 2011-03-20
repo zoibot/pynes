@@ -276,6 +276,10 @@ void PPU::draw_frame() {
         if (event.Type == sf::Event::Closed) {
             wind->Close();
             exit(0);
+        } else if (event.Type == sf::Event::KeyReleased) {
+            if(event.Key.Code == sf::Key::T) {
+                screen.SaveToFile("sshot.jpg");
+            }
         }
     }
     wind->Display();
