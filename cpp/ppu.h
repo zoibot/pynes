@@ -38,8 +38,6 @@ private:
 	byte pctrl;
 	word vaddr, taddr;
 	//position
-	int sl;
-	word cyc;
 	byte xoff, fine_x;
 	int cycle_count;
     list<Sprite*> cur_sprs;
@@ -52,6 +50,8 @@ private:
     void set_mirror(word from, word to, word size);
 	
 public:
+	int sl;
+	word cyc;
 	byte* obj_mem;
 	word obj_addr;
     void run();

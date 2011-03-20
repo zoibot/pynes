@@ -1,0 +1,91 @@
+I sent Disch a PM, asking about how to add a new mapper, and he gave me a lot of useful information. I hope you find it useful as well!
+
+Originally sent by Rockman
+If I wanted to add a new mapper to Mega Man, MMC3, how would I go about doing that? This may sound stupid, but is it just a change of a byte to change the mapper? Offset 5 I think. I could be wrong. Is any heavy code involved in adding the new mapper, and if I did, how could I benefit from that. I know MMC3 is the mapper used in the later NES games, and seems to be pretty good.
+
+
+Disch:
+
+When changing mappers there are things you have to consider. The mapper you want to change to has to have all the same capabilities as the mapper the game currently uses. So -- it's important to know the basic capabilities of each mapper. If you don't have it already, pick up a copy of Firebug's mapper doc:
+
+http://nesdev.parodius.com/mappers.zip
+
+Rename the mappers.nfo file to mappers.txt and toss/ignore the exe that comes with it (it's stupid) That doc gives a good general outline of several mappers -- although it's a little outdated and inaccurate at times (but it's good enough to get you going). For more accurate info, you might want to check Kevtris' mapper pages (the page was having trouble loading when I typed this, but that's the link):
+
+http://www.tripoint.org/kevtris/mappers/mappers.html
+
+Anyway... Megaman currently uses mapper 2 (UNROM). So to briefly look at what mapper 2 can do:
+
+- 8k CHR RAM
+- 16k PRG swapping @ $8000-$BFFF
+
+And what mapper 4 (MMC3) can do:
+
+- 8k CHR RAM or up to 512k (I think? maybe 256k?) CHR-ROM
+- 8k PRG swapping @ $8000-$9FFF or $C000-$DFFF (but not both)
+- 8k PRG swapping @ $A000-$BFFF
+- (mapper has other features, but these are the only ones we're interested in for now)
+
+So... can Mapper 4 do everything mapper 2 can? If not we've got a problem and the mapper conversion might not be possible without extremely heavy code changes to the game. But, comparing the above capabilties:
+
+- UNROM does CHR-RAM --- MMC3 can do CHR-RAM (good!)
+- UNROM can swap out $8000-$BFFF -- so can MMC3, but with a higher res (good!)
+
+So a conversion IS possible.
+
+So how do you convert? Well... changing the mapper number in the iNES header is part of it (high 4 bits of offset $00006 --- mapper 2 will be $2x, mapper 4 would be $4x). If you do just that -- the game will crash and burn when you play it! All that does it tell the emulator to use a different mapper -- the game itself will still be swapping and doing stuff with the old mapper's regs. So what you'll have to do is change ALL the code in the game that interacts with the mapper. You'll have to rewrite all mapper-specific routines so that they perform the same job, but with the new mapper.
+
+In complex mappers this can be a big task, but with UNROM it's likely pretty simple. The only feature UNROM really provides is PRG swapping -- and the game probably has a single subroutine it JSRs to when it wants to swap banks ... so to change that routine, you'll have to find it and replace it with the MMC3 equivilant.
+
+An UNROM game might swap a bank like so:
+
+LDA #$04 ; it's going to select page 4
+JSR swap_routine ; jump to our swap routine
+
+; elsewhere in the game
+
+swap_routine:
+
+TAX ; move desired page to X reg
+STA page_reference_table, X ;write to swapping reg
+RTS ;return
+
+
+page_reference_table is probably near the end of the ROM... and has a bunch of values that 'count up':
+
+00 01 02 03 04 05 06 07 08 09 ...
+
+UNROM swaps banks on any write to anywhere within the $8000-$FFFF range -- however due to bus conflicts, the value it writes must match the value read from that address. If you don't understand this, don't worry -- MMC3 does not have bus conflicts so you don't have to do anything like this -- just know that the game probably does something similar to the above. Basically, after the write to $8000-$FFFF, a new 16k will be swapped into $8000-$BFFF.
+
+So for MMC3, you'll have to find that 'swap_routine' and rewrite it to something that does the same job -- but using MMC3's registers. It might look like the following;
+
+
+swap_routine:
+
+ASL A ;double our page number (make it an 8k page instead of 16k)
+TAX ; save it in X
+
+LDA #$06
+STA $8000 ;set MMC3 to "swap 8k @ $8000" mode
+
+TXA ; get the page number back from X
+STA $8001 ;actually swap out the page
+
+LDA #$07
+STA $8000 ; set MMC3 to "swap 8k @ $A000" mode
+
+INX ;increment the page number
+TXA ; get the incremented page number from X
+STA $8001 ; swap out the page
+
+RTS ;exit
+
+
+As you can see the MMC3 code is much larger -- this cannot be helped. You might have trouble with a lack of free space... but you'll just have to find some free space to fit the routine in. Note this space should remain in the "hardwired" bank (the last 16k PRG page in the ROM) so that the swap routine is always avaialable -- regardless of which bank is swapped in.
+
+
+But that's not all!
+
+The MMC3 should probably be prepped on power-up as well. UNROM doesn't really need any prepping, but MMC3 might. However, I wouldn't worry so much about this, since emulators will probably play the game fine even without prepping. In fact I wouldn't even worry about it for now -- but it's something you should keep in the back of your mind.
+
+Anyway -- hope that's helpful and I hope I made sense. I can try to clarify more if you'd like.

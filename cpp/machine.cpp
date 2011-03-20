@@ -94,7 +94,6 @@ void Machine::set_mem(word addr, byte val) {
             read_input_state = 0;
         } else if (addr == 0x4014) {
             word start = val << 8;
-            //word end = start + 0x100;
             for(word v = 0; v < 0x100; v++) {
                 byte addr = v + ppu->obj_addr;
                 ppu->obj_mem[addr] = mem[start+v];
@@ -104,19 +103,27 @@ void Machine::set_mem(word addr, byte val) {
         //ALU
     } else if(addr < 0x8000) {
         rom->prg_ram[addr-0x6000] = val;
+    } else {
+        //switch rom
+        if(rom->mapper == 2) {
+            //cout << "prg bank switch " << (val & 7) << endl;
+            memcpy(rom->prg_rom, rom->prg_banks + ((val & 0x7) * 0x4000), 0x4000);
+        } else if (rom->mapper == 3) {
+            //cout << "chr bank switch " << (val & 3) << endl;
+            rom->chr_rom = rom->chr_banks + (0x2000 * (val & 3));
+        }
     }
 }
 
 void Machine::push2(word val) {
     s -= 2;
-    word ss = s | 0x0100;
-    set_mem(ss+1, val & 0xff);
-    set_mem(ss+2, val >> 8);
+    word ss = 0x0100;
+    set_mem(ss | (s + 1), val & 0xff);
+    set_mem(ss | (s + 2), val >> 8);
 }
 word Machine::pop2() {
     s += 2;
-    word ss = s | 0x100;
-    return get_mem(ss-1) + (get_mem(ss) << 8);
+    return get_mem(((s-1) & 0xff) | 0x100) + (get_mem(s | 0x100) << 8);
 }
 void Machine::push(byte val) {
     set_mem(s-- | 0x100, val);
@@ -133,6 +140,8 @@ string Machine::dump_regs() {
 	out << " Y:" << hex2(y);
 	out << " P:" << hex2(p);
 	out << " SP:" << hex2(s);
+	out << " CYC:" << ppu->cyc;
+	out << " SL:" << ppu->sl;
     return out.str();
 }
 
@@ -223,7 +232,7 @@ void Machine::execute_inst() {
 		branch(get_flag(N), inst);
 		break;
 	case BIT:
-		m = get_mem(inst.addr);
+		m = inst.operand;
 		set_flag(N, m & (1 << 7));
 		set_flag(V, m & (1 << 6));
 		set_flag(Z, (m & a) == 0);

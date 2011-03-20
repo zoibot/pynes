@@ -12,7 +12,9 @@ struct Rom {
     byte mapper;
     byte trainer[512];
     byte* prg_rom;
+    byte* prg_banks;
     byte* chr_rom;
+    byte* chr_banks;
     byte* prg_ram;
 
     Rom(istream& f);

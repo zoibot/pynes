@@ -130,25 +130,28 @@ byte PPU::get_mem(word addr) {
     } else if(addr < 0x3f00) {
         return get_mem(addr - 0x1000);
     } else {
-        return mem[mirror_table[addr]];
+        return mem[addr&0x1f];
     }
 }
 
 void PPU::set_mem(word addr, byte val) {
     if(addr < 0x2000) {
         //should set rom???
-    } else {
+    } else if(addr < 0x3f00) {
         mem[mirror_table[addr]] = val;
+    } else {
+        mem[addr&0x1f] = val;
     }
 }
 
 void PPU::new_scanline() {
     int fineY = (vaddr & 0x7000) >> 12;
     if(fineY == 7) {
-        if((vaddr & 0x3ff) >= 0x3c0) {
-            vaddr |= 0x800;
-        }
         vaddr += 0x20;
+        if((vaddr & 0x3ff) >= 0x3c0) {
+            vaddr &= ~0x3ff;
+            vaddr ^= 0x800;
+        }
     }
     vaddr &= ~0x741f;
     vaddr |= taddr & 0x1f;
@@ -174,7 +177,7 @@ void PPU::do_vblank(bool rendering_enabled) {
         cycle_count += 341 - cyc;
         cyc = 0;
         sl += 1;
-        pstat &= ~(3 << 6);
+        pstat &= ~(1 << 7);
         if(rendering_enabled) {
             vaddr = taddr;
             fine_x = xoff;
@@ -183,6 +186,8 @@ void PPU::do_vblank(bool rendering_enabled) {
 }
 
 void PPU::render_pixels(byte x, byte y, byte num) {
+    bool bg_enabled = pmask & (1 << 3);
+    bool sprite_enabled = pmask & (1 << 4);
     int fineY = (vaddr >> 12) & 7;
     int xoff = cyc;
     word base_pt_addr;
@@ -211,38 +216,39 @@ void PPU::render_pixels(byte x, byte y, byte num) {
         lo >>= (7-fine_x);
         lo &= 1;
         word coli = 0x3f00;
-        if(hi|lo)
+        if((hi|lo) && bg_enabled)
             coli |= at_val | hi | lo;
-        Sprite *cur = NULL;
-        for(list<Sprite*>::iterator i = cur_sprs.begin(); i != cur_sprs.end(); i++) {
-            if(((*i)->x <= xoff) && (xoff < ((*i)->x+8))) {
-                cur = (*i);
-                //TODO mirroring
-                byte pal = (1<<4) | ((cur->attrs & 3) << 2);
-                byte xsoff = xoff-cur->x;
-                if(cur->attrs & (1<<6))
-                    xsoff = 7-xsoff;
-                byte ysoff = y-cur->y-1;
-                if(cur->attrs & (1<<7))
-                    ysoff = 7-ysoff;
-                word pat = (cur->tile * 0x10) + base_spr_addr;
-                byte shi = get_mem(pat+8+ysoff);
-                byte slo = get_mem(pat+ysoff);
-                shi >>= (7-xsoff);
-                shi &= 1;
-                shi <<= 1;
-                slo >>= (7-xsoff);
-                slo &= 1;
-                if((!(hi|lo) && (shi|slo)) || !(cur->attrs & (1<<5))) {
-                    if(shi|slo) {
-                        if(cur == (Sprite*)obj_mem)
-                            pstat |= 1<<6;
-                        coli = 0x3f00 | pal | shi | slo;
-                        break;
+        if(sprite_enabled) {
+            Sprite *cur = NULL;
+            for(list<Sprite*>::iterator i = cur_sprs.begin(); i != cur_sprs.end(); i++) {
+                if(((*i)->x <= xoff) && (xoff < ((*i)->x+8))) {
+                    cur = (*i);
+                    //TODO mirroring
+                    byte pal = (1<<4) | ((cur->attrs & 3) << 2);
+                    byte xsoff = xoff-cur->x;
+                    if(cur->attrs & (1<<6))
+                        xsoff = 7-xsoff;
+                    byte ysoff = y-cur->y-1;
+                    if(cur->attrs & (1<<7))
+                        ysoff = 7-ysoff;
+                    word pat = (cur->tile * 0x10) + base_spr_addr;
+                    byte shi = get_mem(pat+8+ysoff);
+                    byte slo = get_mem(pat+ysoff);
+                    shi >>= (7-xsoff);
+                    shi &= 1;
+                    shi <<= 1;
+                    slo >>= (7-xsoff);
+                    slo &= 1;
+                    if(cur == (Sprite*)obj_mem && (shi|slo) && (hi|lo) && bg_enabled)
+                        pstat |= 1<<6; // spr hit 0
+                    if((!(hi|lo) && (shi|slo)) || !(cur->attrs & (1<<5))) {
+                        if(shi|slo) {
+                            coli = 0x3f00 | pal | shi | slo;
+                            break;
+                        }
                     }
                 }
             }
-            //cout << "sprite " << coli << endl;
         }
         int color = colors[get_mem(coli)];
         screen.SetPixel(xoff, y, sf::Color((color & 0xff0000)>>16, (color & 0x00ff00) >> 8, color & 0x0000ff));
@@ -251,7 +257,7 @@ void PPU::render_pixels(byte x, byte y, byte num) {
         xoff++;
         if(!fine_x) {
             if((vaddr & 0x1f) == 0x1f) {
-                vaddr |= 0x400;
+                vaddr ^= 0x400;
                 vaddr -= 0x1f;
             } else {
                 vaddr++;
@@ -273,7 +279,7 @@ void PPU::draw_frame() {
         }
     }
     wind->Display();
-    cout << "frame! " << (1/wind->GetFrameTime()) << endl;
+    //cout << "frame! " << (1/wind->GetFrameTime()) << endl;
 }
 
 void PPU::run() {
@@ -312,8 +318,8 @@ void PPU::run() {
                 cycle_count += 341 - cyc;
                 cyc = 0;
                 sl += 1;
-                cout << "vblank" << endl;
                 pstat |= (1 << 7);
+                pstat &= ~(1 << 6);
                 if(pctrl & (1 << 7)) {
                     mach->nmi(0xfffa);
                 }

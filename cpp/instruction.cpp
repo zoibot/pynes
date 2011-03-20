@@ -113,12 +113,6 @@ void Instruction::next_instruction() {
 	case ABSI:
 		i_addr = mach->next_word();
     	addr = mach->get_mem(i_addr) + (mach->get_mem(((i_addr+1) & 0xff) | (i_addr & 0xff00)) << 8);
-        if(i_addr == 0x2ff) {
-            cout << "foo " <<  hex4(i_addr) << endl;
-            cout << "foobar " <<  hex2(mach->get_mem(i_addr)) << endl;
-            cout << "foobaz " << hex2(mach->get_mem(((i_addr+1) & 0xff) | (i_addr & 0xff00))) << endl;
-            cout << "fooo" << mach->get_mem(i_addr) + (mach->get_mem(((i_addr+1) & 0xff) | (i_addr & 0xff00)) << 8);
-        }
 		args[0] = i_addr & 0xff;
 		args[1] = (i_addr & 0xff00) >> 8;
 		arglen = 2;
