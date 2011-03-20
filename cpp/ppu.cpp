@@ -20,10 +20,13 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
     for(int i = 0; i < 0x4000; i++)
         mirror_table[i] = i;
     set_mirror(0x3000, 0x2000, 0xf00);
-    //if(mach->rom->flags & ) {
-    //}
-    set_mirror(0x2800, 0x2000, 0x400);
-    set_mirror(0x2c00, 0x2400, 0x400);
+    if(mach->rom->flags6 & 1) {
+        set_mirror(0x2800, 0x2000, 0x400);
+        set_mirror(0x2c00, 0x2400, 0x400);
+    } else {
+        set_mirror(0x2400, 0x2000, 0x400);
+        set_mirror(0x2c00, 0x2800, 0x400);
+    }
 }
 
 byte PPU::read_register(byte num) {
