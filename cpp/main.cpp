@@ -13,15 +13,15 @@ using namespace std;
 
 
 int main(int argc, char *argv[]) {
-	if(argc < 2) {
-		cout << "nope" << endl;
-		exit(1);
-	}
+    if(argc < 2) {
+        cout << "nope" << endl;
+        exit(1);
+    }
     bool debug = argc > 2;
-	ifstream romf(argv[1], ifstream::binary | ifstream::in);
-	Rom rom(romf);
-	Machine mach(&rom);
-	mach.run(debug);
-	cin.get();
+    ifstream romf(argv[1], ifstream::binary | ifstream::in);
+    Rom rom(romf);
+    Machine mach(&rom);
+    mach.run(debug);
+    cin.get();
     return 0;
 }

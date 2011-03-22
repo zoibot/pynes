@@ -196,7 +196,12 @@ void PPU::render_pixels(byte x, byte y, byte num) {
     } else {
         base_pt_addr = 0x0;
     }
-    word base_spr_addr = 0x1000 * ((pctrl & 8) >> 3);
+    word base_spr_addr;
+    if(pctrl & 8) {
+        base_spr_addr = 0x1000;
+    } else {
+        base_spr_addr = 0x0;
+    }
     while(num) {
         word nt_addr = 0x2000 | (vaddr & 0xfff);
         word at_base = (nt_addr & (~0xfff)) + 0x3c0;
@@ -239,8 +244,16 @@ void PPU::render_pixels(byte x, byte y, byte num) {
                     shi <<= 1;
                     slo >>= (7-xsoff);
                     slo &= 1;
-                    if(cur == (Sprite*)obj_mem && (shi|slo) && (hi|lo) && bg_enabled)
+                    if((cur == (Sprite*)obj_mem) && (shi|slo) && (hi|lo) && bg_enabled) {
                         pstat |= 1<<6; // spr hit 0
+                        cout << " sprite 0 hit " << endl;
+                        cout << int(xoff) << endl;
+                        cout << int(y) << endl;
+                        cout << hex2(cur->attrs) << endl;
+                        cout << hex2(cur->x) << endl;
+                        cout << hex2(cur->y) << endl;
+                        cout << hex2(cur->tile) << endl;
+                    }
                     if((!(hi|lo) && (shi|slo)) || !(cur->attrs & (1<<5))) {
                         if(shi|slo) {
                             coli = 0x3f00 | pal | shi | slo;
@@ -283,7 +296,7 @@ void PPU::draw_frame() {
         }
     }
     wind->Display();
-    //cout << "frame! " << (1/wind->GetFrameTime()) << endl;
+    cout << "frame! " << (1/wind->GetFrameTime()) << endl;
 }
 
 void PPU::run() {
