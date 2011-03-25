@@ -6,6 +6,7 @@ APU::APU() {
 
 void APU::write_register(byte num, byte val) {
     switch(num) {
+
     default:
         break;
     }

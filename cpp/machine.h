@@ -8,6 +8,7 @@
 #include <SFML/Window.hpp>
 
 #include "ppu.h"
+#include "apu.h"
 #include "instruction.h"
 #include "rom.h"
 #include "util.h"
@@ -30,6 +31,8 @@ class Machine {
     PPU *ppu;
     sf::RenderWindow wind;
     //APU
+    APU *apu;
+    //sound??
     //input
     byte read_input_state;
     bool keys[8];

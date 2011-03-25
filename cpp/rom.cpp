@@ -7,10 +7,11 @@
 using namespace std;
 
 Rom::Rom(istream& f) {
+    //TODO: need a real mapper class
     byte header[16];
     f.read((char*)header, 16);
     if (strncmp((char*)header, "NES\x1a", 4) == 0) {
-       // cout << "header constant OK!" << endl;
+        cout << "header constant OK!" << endl;
     } else {
         cout << "bad rom...";
     }
@@ -24,6 +25,8 @@ Rom::Rom(istream& f) {
         cout << "Unsupported Mapper" << endl;
         cout << int(mapper) << endl;
         exit(1);
+    } else {
+        cout << "Using mapper: " << mapper << endl;
     }
     prg_ram_size = header[8];
     if(flags6 & (1<<2)) {
@@ -31,11 +34,10 @@ Rom::Rom(istream& f) {
         f.read((char*)trainer, 512);
     }
     //flags9,flags10
-    if(mapper == 0 || mapper == 64|| mapper == 3) {
+    if(mapper == 0 || mapper == 64 || mapper == 3) {
         prg_rom = new byte[16384 * prg_size];
         f.read((char*)prg_rom, 16384 * prg_size);
     } else if(mapper == 2) {
-        cout << "using mapper 2" << endl;
         prg_rom = new byte[16384 * 2];
         prg_banks = new byte[16384 * prg_size];
         f.read((char*)prg_banks, 16384 * prg_size);
@@ -43,7 +45,7 @@ Rom::Rom(istream& f) {
         memcpy(prg_rom + 16384, prg_banks + (prg_size - 1) * 16384, 16384);
     }
 
-    cout << int(prg_size) << endl;
+    cout << "prg size " << int(prg_size) << endl;
     bool chr_ram = (chr_size == 0);
     if(chr_ram) {
         chr_rom = new byte[8192];
@@ -62,6 +64,6 @@ Rom::Rom(istream& f) {
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
     }
-	cout << "Rom loaded successfully!" << endl;
+    cout << "Rom loaded successfully!" << endl;
 
 }

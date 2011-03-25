@@ -52,14 +52,18 @@ byte Machine::get_mem(word addr) {
     } else if(addr < 0x4000) {
         return ppu->read_register((addr - 0x2000)&7);
     } else if(addr < 0x4018) {
-        if(addr == 0x4016) {
+        switch(addr) {
+        case 0x4016:
             if(read_input_state < 8) {
                 return keys[read_input_state++];
             } else {
                 return 1;
             }
+        break;
+        default:
+            apu->read_register(addr - 0x4000);
+            break;
         }
-        return 0; //alu
     } else if(addr < 0x8000) {
         return rom->prg_ram[addr-0x6000];
     } else if(addr < 0xC000 || rom->prg_size > 1) {
@@ -86,22 +90,27 @@ void Machine::set_mem(word addr, byte val) {
     } else if(addr < 0x4000) {
         ppu->write_register((addr - 0x2000)&7, val);
     } else if(addr < 0x4018) {
-        if(addr == 0x4016) {
+        switch(addr) {
+        case 0x4016:
             if(val & 1) {
                 for(int i = 0; i < 8; i++) {
                     keys[i] = wind.GetInput().IsKeyDown(keymap[i]);
                 }
             }
             read_input_state = 0;
-        } else if (addr == 0x4014) {
+            break;
+        case 0x4014:
             word start = val << 8;
             for(word v = 0; v < 0x100; v++) {
                 byte addr = v + ppu->obj_addr;
                 ppu->obj_mem[addr] = mem[start+v];
             }
             //TODO ppu set obj mem
+            break;
+        default:
+            apu->write_register(addr - 0x4000, val);
+            break;
         }
-        //ALU
     } else if(addr < 0x8000) {
         rom->prg_ram[addr-0x6000] = val;
     } else {
@@ -151,10 +160,10 @@ Machine::Machine(Rom *rom) {
     inst.mach = this;
     //Display
     wind.Create(sf::VideoMode(256, 240), "NES", sf::Style::Close);
-    //wind.SetFramerateLimit(30);
+    //wind.SetFramerateLimit(30); what is the right limit??
     //print surface bits
+    cout << "Depth Bits: " << wind.GetSettings().DepthBits << endl;
     ppu = new PPU(this, &wind);
-    //get pixel array from ppu
     //clock???
     mem = new byte[0x800];
     for(int i = 0; i < 0x800; i++) {

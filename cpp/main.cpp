@@ -19,6 +19,7 @@ int main(int argc, char *argv[]) {
     }
     bool debug = argc > 2;
     ifstream romf(argv[1], ifstream::binary | ifstream::in);
+    cout << "Loading Rom: " << argv[1] << endl;
     Rom rom(romf);
     Machine mach(&rom);
     mach.run(debug);
