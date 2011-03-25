@@ -100,10 +100,9 @@ void Machine::set_mem(word addr, byte val) {
             read_input_state = 0;
             break;
         case 0x4014:
-            word start = val << 8;
             for(word v = 0; v < 0x100; v++) {
                 byte addr = v + ppu->obj_addr;
-                ppu->obj_mem[addr] = mem[start+v];
+                ppu->obj_mem[addr] = mem[(val << 8)+v];
             }
             //TODO ppu set obj mem
             break;
