@@ -46,6 +46,9 @@ class APU {
     Triangle tr;
     Noise ns;
     DMC dmc;
+    bool frame_mode;
+    bool frame_irq;
+    byte status;
 public:
     APU();
     void write_register(byte num, byte val);

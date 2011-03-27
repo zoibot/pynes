@@ -519,6 +519,7 @@ void Machine::run(bool debug) {
                 cout << inst << dump_regs() << endl; 
             execute_inst();
             ppu->run();
+            apu->update(cycle_count);
         } catch(...) {
             break;
         }

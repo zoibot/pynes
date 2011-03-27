@@ -77,9 +77,20 @@ void APU::write_register(byte num, byte val) {
         dmc.write_register(num, val);
     case 0x15:
         //status
+        //length counter enable
+        //val & 0x10 dmc something
+        ns.enable(val & 0x8);
+        tr.enable(val & 0x4);
+        p2.enable(val & 0x2);
+        p1.enable(val & 0x1);
         break;
     case 0x17:
-        //length counter
+        //frame counter
+        frame_mode = val & 0x80;
+        if(val & 0x40) {
+            status &= ~0x40;
+            frame_irq = false;
+        }
         break;
     default:
         cout << "weird APU register " << num << endl;
@@ -90,6 +101,9 @@ void APU::write_register(byte num, byte val) {
 
 byte APU::read_register(byte num) {
     switch(num) {
+    case 0x17:
+
+        break;
     default:
         return 0;
     }
