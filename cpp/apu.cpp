@@ -1,4 +1,5 @@
 #include "apu.h"
+#include "machine.h"
 //sound queue??
 
 void Pulse::write_register(byte num, byte val) {
@@ -41,7 +42,14 @@ byte DMC::read_register(byte num) {
     return 0;
 }
 
-APU::APU() {
+APU::APU(Machine *mach) {
+	this->mach = mach;
+	frame_cycles = 0;
+	sequencer_status = 0;
+	odd_clock = 0;
+	frame_mode = 0;
+	frame_irq = false;
+	status = 0;
     sound.SetBuffer(buf);
 }
 
@@ -79,10 +87,10 @@ void APU::write_register(byte num, byte val) {
         //status
         //length counter enable
         //val & 0x10 dmc something
-        ns.enable(val & 0x8);
+        /*ns.enable(val & 0x8);
         tr.enable(val & 0x4);
         p2.enable(val & 0x2);
-        p1.enable(val & 0x1);
+        p1.enable(val & 0x1);*/
         break;
     case 0x17:
         //frame counter
@@ -100,12 +108,50 @@ void APU::write_register(byte num, byte val) {
 }
 
 byte APU::read_register(byte num) {
+	byte old_status = status;
     switch(num) {
+	case 0x15:
+		status &= ~0x40;
+		return old_status;
     case 0x17:
-
-        break;
+		return 0;
     default:
         return 0;
     }
 
+}
+
+void APU::update(int cycles) {
+	frame_cycles += cycles;
+	if((odd_clock && frame_cycles > 7,457) || frame_cycles > 7,458) {
+		if(!odd_clock)
+			frame_cycles -= 1;
+		frame_cycles -= 7457;
+		clock_sequencer();
+		odd_clock = !odd_clock;
+	}
+}
+
+void APU::clock_sequencer() {
+	if(frame_mode) {
+		sequencer_status = (sequencer_status + 1) % 5;
+	} else {
+		switch(sequencer_status) {
+		case 0:
+		case 2:
+			//clock both
+			break;
+		case 3:
+			//interrupt
+			if(frame_irq) {
+				status |= 0x40;
+				mach->nmi(0xfffe);
+				//other crap
+			}
+		case 1:
+			//clock 1
+			break;
+		}
+		sequencer_status = (sequencer_status + 1) % 4;
+	}
 }

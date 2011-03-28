@@ -17,17 +17,16 @@ Instruction::Instruction() {
 }
 
 ostream& operator <<(ostream &out, Instruction &inst) {
-	out << hex << uppercase << setfill('0') << setw(2);
-	out << hex2(inst.opcode);
+	out << HEX2(inst.opcode);
 	out << " ";
 	if(inst.arglen > 0) {
-		out << hex2(inst.args[0]);
+		out << HEX2(inst.args[0]);
 	} else {
 		out << "  ";
 	}
 	out << " ";
 	if(inst.arglen > 1) {
-		out << hex2(inst.args[1]);
+		out << HEX2(inst.args[1]);
 	} else {
 		out << "  ";
 	}
@@ -41,33 +40,33 @@ ostream& operator <<(ostream &out, Instruction &inst) {
 	out << " ";
 	switch (inst.op.addr_mode) {
 	case IMM:
-		out << "#$" << hex2(inst.operand) << "                        ";
+		out << "#$" << HEX2(inst.operand) << "                        ";
 		break;
 	case REL:
-		out << "$" << hex4(inst.addr) << "                       ";
+		out << "$" << HEX4(inst.addr) << "                       ";
 		break;
 	case ZP:
 	case ZP_ST:
-		out << "$" << hex2(inst.addr) << "                         ";
+		out << "$" << HEX2(inst.addr) << "                         ";
 		break;
 	case ABS:
 	case ABS_ST:
-		out << "$" << hex4(inst.addr) << "                       ";
+		out << "$" << HEX4(inst.addr) << "                       ";
 		break;
     case A:
         out << "A" << "                           ";
         break;
     case ZPX:
-        out << "($" << hex2(inst.args[0]) << ",X) @ " << hex2(inst.addr) << "                ";
+        out << "($" << HEX2(inst.args[0]) << ",X) @ " << HEX2(inst.addr) << "                ";
         break;
 	case ZPY:
-        out << "($" << hex2(inst.args[0]) << ",Y) @ " << hex2(inst.addr) << "                ";
+        out << "($" << HEX2(inst.args[0]) << ",Y) @ " << HEX2(inst.addr) << "                ";
         break;
     case IDIX:
-        out << "($" << hex2(inst.args[0]) << "),Y     " << hex2(inst.operand) << " @ " << hex2(inst.i_addr) << "         ";
+        out << "($" << HEX2(inst.args[0]) << "),Y     " << HEX2(inst.operand) << " @ " << HEX2(inst.i_addr) << "         ";
         break;
     case IXID:
-        out << "($" << hex2(inst.args[0]) << ",X) @ " << hex2(inst.i_addr) << "                ";
+        out << "($" << HEX2(inst.args[0]) << ",X) @ " << HEX2(inst.i_addr) << "                ";
         break;
 	default:
 		out << "                            ";

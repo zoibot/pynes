@@ -144,13 +144,15 @@ byte Machine::pop() {
 string Machine::dump_regs() {
     stringstream out;
     out << hex << uppercase;
-    out << "A:" << hex2(a);
-    out << " X:" << hex2(x);
-    out << " Y:" << hex2(y);
-    out << " P:" << hex2(p);
-    out << " SP:" << hex2(s);
+    out << "A:" << HEX2(a);
+    out << " X:" << HEX2(x);
+    out << " Y:" << HEX2(y);
+    out << " P:" << HEX2(p);
+    out << " SP:" << HEX2(s);
+	out << dec;
     out << " CYC:" << ppu->cyc;
     out << " SL:" << ppu->sl;
+	out << " VADDR: " << HEX4(ppu->vaddr);
     return out.str();
 }
 
@@ -163,6 +165,7 @@ Machine::Machine(Rom *rom) {
     //print surface bits
     cout << "Depth Bits: " << wind.GetSettings().DepthBits << endl;
     ppu = new PPU(this, &wind);
+	apu = new APU(this);
     //clock???
     mem = new byte[0x800];
     for(int i = 0; i < 0x800; i++) {
@@ -277,10 +280,6 @@ void Machine::execute_inst() {
         set_flag(I, true);
         break;
     case LDA:
-        /*if(inst.addr == 0x2002) {
-            cout << hex2(inst.operand) << endl;
-            cout << hex2(ppu->read_register(2)) << endl;
-        }*/
         a = inst.operand;
         set_nz(a);
         break;
@@ -508,18 +507,34 @@ void Machine::execute_inst() {
 void Machine::run(bool debug) {
     reset();
     ofstream cout("LOG.TXT");
-    //pc = 0xc000;
-    cout << hex << uppercase;
+	cout << uppercase << setfill('0');
+    debug = true;
     while(1) {
         try {
             if(debug)
-                cout << hex4(pc) << "  ";
+                cout << HEX4(pc) << "  ";
             inst.next_instruction();
             if(debug)
                 cout << inst << dump_regs() << endl; 
             execute_inst();
             ppu->run();
-            apu->update(cycle_count);
+			apu->update(inst.op.cycles + inst.extra_cycles);
+			//special handling for blargg tests
+			if(rom->prg_ram[1] == 0xde && rom->prg_ram[2] == 0xb0) {//&& mem[0x6003] == 0x61) {
+				switch(rom->prg_ram[0]) {
+				case 0x80:
+					//running
+					break;
+				case 0x81:
+					//need reset
+					break;
+				default:
+					cout << "test done: " << endl;
+					cout << (char*)(rom->prg_ram + 4) << endl;
+					cin.get();
+					break;
+				}
+			}
         } catch(...) {
             break;
         }

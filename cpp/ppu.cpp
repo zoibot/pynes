@@ -8,6 +8,8 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
     this->wind = wind;
     screen.Create(256, 240);
     screen.SetSmooth(false);
+	debugi.Create(512, 480);
+	debugi.SetSmooth(false);
     vaddr = 0;
     obj_addr = 0;
     mem = new byte[0x4000];
@@ -136,7 +138,7 @@ byte PPU::get_mem(word addr) {
 
 void PPU::set_mem(word addr, byte val) {
     if(addr < 0x2000) {
-        //should set rom???
+        mach->rom->chr_rom[addr] = val;
     } else if(addr < 0x3f00) {
         mem[mirror_table[addr]] = val;
     } else {
@@ -163,6 +165,10 @@ void PPU::new_scanline() {
     for(int i = 0; i < 64; i++) {
         Sprite *s = ((Sprite*)obj_mem)+i;
         if(s->y <= (sl-1) && (sl-1) < s->y+8) {
+			if(i == 0 && s->y >= 238) {
+				//cout << "yo dawg" << endl;
+				debug_flag = true;
+			}
             cur_sprs.push_back(s);
         }
     }
@@ -221,14 +227,20 @@ void PPU::render_pixels(byte x, byte y, byte num) {
         lo >>= (7-fine_x);
         lo &= 1;
         word coli = 0x3f00;
-        if((hi|lo) && bg_enabled)
+        if((hi|lo) && bg_enabled && !(xoff < 8 && !(pmask & 2)))
             coli |= at_val | hi | lo;
-        if(sprite_enabled) {
+		if(debug_flag) {
+			//cout << "on the outside" << endl;
+			//cout << sprite_enabled << endl;
+			//cin.get();
+		}
+        if(sprite_enabled && !(xoff < 8 && !(pmask & 4))) {
             Sprite *cur = NULL;
+
             for(list<Sprite*>::iterator i = cur_sprs.begin(); i != cur_sprs.end(); i++) {
                 if(((*i)->x <= xoff) && (xoff < ((*i)->x+8))) {
                     cur = (*i);
-                    //TODO mirroring
+                    //TODO double high sprites
                     byte pal = (1<<4) | ((cur->attrs & 3) << 2);
                     byte xsoff = xoff-cur->x;
                     if(cur->attrs & (1<<6))
@@ -244,15 +256,20 @@ void PPU::render_pixels(byte x, byte y, byte num) {
                     shi <<= 1;
                     slo >>= (7-xsoff);
                     slo &= 1;
-                    if((cur == (Sprite*)obj_mem) && (shi|slo) && (hi|lo) && bg_enabled) {
+					if(y >= 238) {
+						cout << "spr " << endl;
+						cout << "y: " << cur->y << endl;
+						cout << "x: " << cur->x << endl;
+					}
+                    if((cur == (Sprite*)obj_mem) && (shi|slo) && (hi|lo) && bg_enabled && !(xoff < 8 && !(pmask & 2)) && xoff < 255) {
                         pstat |= 1<<6; // spr hit 0
-                        cout << " sprite 0 hit " << endl;
+                       /* cout << " sprite 0 hit " << endl;
                         cout << int(xoff) << endl;
                         cout << int(y) << endl;
-                        cout << hex2(cur->attrs) << endl;
-                        cout << hex2(cur->x) << endl;
-                        cout << hex2(cur->y) << endl;
-                        cout << hex2(cur->tile) << endl;
+                        cout << HEX2(cur->attrs) << endl;
+                        cout << HEX2(cur->x) << endl;
+                        cout << HEX2(cur->y) << endl;
+                        cout << HEX2(cur->tile) << endl;*/
                     }
                     if((!(hi|lo) && (shi|slo)) || !(cur->attrs & (1<<5))) {
                         if(shi|slo) {
@@ -263,6 +280,7 @@ void PPU::render_pixels(byte x, byte y, byte num) {
                 }
             }
         }
+		debug_flag = false;
         int color = colors[get_mem(coli)];
         screen.SetPixel(xoff, y, sf::Color((color & 0xff0000)>>16, (color & 0x00ff00) >> 8, color & 0x0000ff));
         fine_x++;
@@ -292,11 +310,14 @@ void PPU::draw_frame() {
         } else if (event.Type == sf::Event::KeyReleased) {
             if(event.Key.Code == sf::Key::T) {
                 screen.SaveToFile("sshot.jpg");
-            }
+			} else if(event.Key.Code == sf::Key::N) {
+				dump_nts();
+			}
         }
     }
     wind->Display();
-    cout << "frame! " << (1/wind->GetFrameTime()) << endl;
+    //cout << "frame! " << (1/wind->GetFrameTime()) << endl;
+	//wind->set
 }
 
 void PPU::run() {
@@ -346,4 +367,60 @@ void PPU::run() {
             draw_frame();
         }
     }           
+}
+
+
+void PPU::dump_nts() {
+	debug.Create(sf::VideoMode(512, 480), "debug");
+	word base_pt_addr;
+	if(pctrl & (1<<4)) {
+        base_pt_addr = 0x1000;
+    } else {
+        base_pt_addr = 0x0;
+    }
+	int x = 0;
+	int y = 0;
+	for(int nt = 0x2000; nt < 0x3000; nt+=0x400) {
+		for(int ntaddr = nt; ntaddr < nt+0x3c0; ntaddr++) {
+			byte ntb = get_mem(ntaddr);
+			word at_base = (ntaddr & (~0xfff)) + 0x3c0;
+			byte nt_val = get_mem(ntaddr);
+			word pt_addr = (nt_val << 4) + base_pt_addr;
+			byte row = (ntaddr >> 6) & 1;
+			byte col = (ntaddr & 2) >> 1;
+			byte at_val = get_mem(at_base + ((ntaddr & 0x1f)>>2) + ((ntaddr & 0x3e0) >> 7)*8);
+			at_val >>= 4 * row + 2 * col;
+			at_val &= 3;
+			at_val <<= 2;
+			for(int fy = 0; fy < 8; fy++) {
+				for(int fx = 0; fx < 8; fx++) {
+					byte hi = get_mem(pt_addr+8+fy);
+					byte lo = get_mem(pt_addr+fy);
+					hi >>= (7-fx);
+					hi &= 1;
+					hi <<= 1;
+					lo >>= (7-fx);
+					lo &= 1;
+					word coli = 0x3f00;
+					if(hi|lo)
+						coli |= at_val | hi | lo;
+					int color = colors[get_mem(coli)];
+					debugi.SetPixel(x+fx, y+fy, sf::Color((color & 0xff0000)>>16, (color & 0x00ff00) >> 8, color & 0x0000ff));
+				}
+			}
+			x += 8;
+			if(x % 256 == 0) {
+				x -= 256;
+				y += 8;
+			}
+		}
+		x += 256;
+		y -= 240;
+		if(x == 512) {
+			x = 0;
+			y = 240;
+		}
+	}
+	debug.Draw(sf::Sprite(debugi));
+	debug.Display();
 }

@@ -76,17 +76,9 @@ const int colors[] = {
 0x000000
 };
 
-inline string hex2(byte b) {
-	stringstream out;
-	out << hex << uppercase << setfill('0') << setw(2) << int(b);
-	return out.str();
-}
+#define HEX2(b) hex<<setw(2)<<int((b))
 
-inline string hex4(word w) {
-	stringstream out;
-	out << hex << uppercase << setfill('0') << setw(4) << int(w);
-	return out.str();
-}
+#define HEX4(w) hex<<setw(4)<<int(w)
 
 
 #endif //UTIL_H

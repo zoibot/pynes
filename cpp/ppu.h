@@ -28,9 +28,12 @@ struct Palette {
 
 class PPU {
 private:
+	bool debug_flag;
     Machine *mach;
     sf::RenderWindow *wind;
     sf::Image screen;
+	sf::RenderWindow debug;
+	sf::Image debugi;
     //memory
     byte* mem;
     byte mem_buf;
@@ -39,7 +42,6 @@ private:
     byte pmask;
     byte pstat;
     byte pctrl;
-    word vaddr, taddr;
     //position
     byte xoff, fine_x;
     int cycle_count;
@@ -53,10 +55,12 @@ private:
     void set_mirror(word from, word to, word size);
     
 public:
+	word vaddr, taddr;
     int sl;
     word cyc;
     byte* obj_mem;
     word obj_addr;
+	void dump_nts();
     void run();
     void write_register(byte num, byte val);
     byte read_register(byte num);
