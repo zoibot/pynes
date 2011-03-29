@@ -61,7 +61,7 @@ byte Machine::get_mem(word addr) {
             }
         break;
         default:
-            apu->read_register(addr - 0x4000);
+            return apu->read_register(addr - 0x4000);
             break;
         }
     } else if(addr < 0x8000) {
@@ -508,7 +508,7 @@ void Machine::run(bool debug) {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');
-    debug = true;
+    //debug = true;
     while(1) {
         try {
             if(debug)

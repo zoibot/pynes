@@ -19,14 +19,16 @@ Rom::Rom(istream& f) {
     chr_size = header[5];
     flags6 = header[6];
     flags7 = header[7];
+    cout << (flags7 &0xf) << endl;
+    if((flags7 & 0xf) == 0b1000)
+        cout << "ines 2" << endl;
     mapper = ((flags6 & 0xf0) >> 4) | (flags7 & 0xf0);
-    mapper &= 0x3f;
     if(mapper != 0 && mapper != 2 && mapper != 3) {
         cout << "Unsupported Mapper" << endl;
         cout << int(mapper) << endl;
         exit(1);
     } else {
-        cout << "Using mapper: " << mapper << endl;
+        cout << "Using mapper: " << int(mapper) << endl;
     }
     prg_ram_size = header[8];
     if(flags6 & (1<<2)) {
@@ -46,6 +48,7 @@ Rom::Rom(istream& f) {
     }
 
     cout << "prg size " << int(prg_size) << endl;
+    cout << "chr size " << int(chr_size) << endl;
     bool chr_ram = (chr_size == 0);
     if(chr_ram) {
         chr_rom = new byte[8192];

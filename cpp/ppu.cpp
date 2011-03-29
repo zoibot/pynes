@@ -47,6 +47,7 @@ byte PPU::read_register(byte num) {
             ret = mem_buf;
             mem_buf = get_mem(vaddr);
         } else {
+            mem_buf = get_mem(vaddr-0x1000);
             ret = get_mem(vaddr);
         }
         if(pctrl & (1 << 2)) {
@@ -132,7 +133,8 @@ byte PPU::get_mem(word addr) {
     } else if(addr < 0x3f00) {
         return get_mem(addr - 0x1000);
     } else {
-        return mem[addr&0x1f];
+        if((addr & 3) == 0) addr = 0;
+        return mem[0x3f00 + (addr&0x1f)];
     }
 }
 
@@ -142,7 +144,8 @@ void PPU::set_mem(word addr, byte val) {
     } else if(addr < 0x3f00) {
         mem[mirror_table[addr]] = val;
     } else {
-        mem[addr&0x1f] = val;
+        if((addr & 3) == 0) addr = 0;
+        mem[0x3f00 + (addr&0x1f)] = val;
     }
 }
 
@@ -176,6 +179,7 @@ void PPU::new_scanline() {
 
 void PPU::do_vblank(bool rendering_enabled) {
     int cycles = cycle_count * 3 - cycle_count;
+    pstat &= ~(1 << 7);
     if(341 - cyc > cycles) {
         cyc += cycles;
         cycle_count += cycles;
@@ -183,7 +187,6 @@ void PPU::do_vblank(bool rendering_enabled) {
         cycle_count += 341 - cyc;
         cyc = 0;
         sl += 1;
-        pstat &= ~(1 << 7);
         if(rendering_enabled) {
             vaddr = taddr;
             fine_x = xoff;
@@ -363,7 +366,7 @@ void PPU::run() {
                 }
             }
         } else {
-            cycle_count += 341 * 21;
+            cycle_count += 341 * 20;
             draw_frame();
         }
     }           
@@ -382,7 +385,6 @@ void PPU::dump_nts() {
 	int y = 0;
 	for(int nt = 0x2000; nt < 0x3000; nt+=0x400) {
 		for(int ntaddr = nt; ntaddr < nt+0x3c0; ntaddr++) {
-			byte ntb = get_mem(ntaddr);
 			word at_base = (ntaddr & (~0xfff)) + 0x3c0;
 			byte nt_val = get_mem(ntaddr);
 			word pt_addr = (nt_val << 4) + base_pt_addr;
