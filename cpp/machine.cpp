@@ -66,19 +66,24 @@ byte Machine::get_mem(word addr) {
         }
     } else if(addr < 0x8000) {
         return rom->prg_ram[addr-0x6000];
-    } else if(addr < 0xC000 || rom->prg_size > 1) {
-        return rom->prg_rom[addr-0x8000];
     } else {
-        return rom->prg_rom[addr-0xC000];
+	/*	if(!(addr & 0x4000)) {
+			if((((UNROM*)(rom->mapper))->bank == 4)) {
+			
+			if(rom->prg_rom[0] == rom->prg_banks + (0x4000 * (4))) {
+				cout << "wtf " << HEX4(addr) << endl;
+			} else {
+				cout << "super wtf" << endl;
+			}
+			}
+		}*/
+        return rom->prg_rom[(addr & 0x4000)>>14][addr&0x3fff];
     }
 }
 
 byte Machine::get_code_mem(word addr) {
-    if(addr > 0x8000) {
-        if(rom->prg_size == 1)
-            return rom->prg_rom[addr & 0x3fff];
-        else
-            return rom->prg_rom[addr - 0x8000];
+    if(addr >= 0x8000) {
+        return rom->prg_rom[(addr & 0x4000)>>14][addr&0x3fff];
     } else {
         return get_mem(addr);
     }
@@ -113,15 +118,8 @@ void Machine::set_mem(word addr, byte val) {
     } else if(addr < 0x8000) {
         rom->prg_ram[addr-0x6000] = val;
     } else {
-        //switch rom
-        if(rom->mapper == 2) {
-            //cout << "prg bank switch " << (val & 7) << endl;
-            memcpy(rom->prg_rom, rom->prg_banks + ((val & 0x7) * 0x4000), 0x4000);
-        } else if (rom->mapper == 3) {
-            //cout << "chr bank switch " << (val & 3) << endl;
-            rom->chr_rom = rom->chr_banks + (0x2000 * (val & 3));
-        }
-    }
+		rom->mapper->prg_write(addr, val);
+	}
 }
 
 void Machine::push2(word val) {
@@ -153,6 +151,13 @@ string Machine::dump_regs() {
     out << " CYC:" << ppu->cyc;
     out << " SL:" << ppu->sl;
 	out << " VADDR: " << HEX4(ppu->vaddr);
+	int end;
+	if(ppu->last_vblank_end > ppu->last_vblank_start) {
+		end = ppu->last_vblank_end;
+	} else {
+		end = cycle_count;
+	}
+	out << " FC: " << dec << (end - ppu->last_vblank_start);
     return out.str();
 }
 
@@ -160,8 +165,8 @@ Machine::Machine(Rom *rom) {
     this->rom = rom;
     inst.mach = this;
     //Display
-    wind.Create(sf::VideoMode(256, 240), "NES", sf::Style::Close);
-    //wind.SetFramerateLimit(30); what is the right limit??
+    wind.Create(sf::VideoMode(256, 240), "asdfNES", sf::Style::Close);
+    wind.SetFramerateLimit(60);// what is the right limit??
     //print surface bits
     cout << "Depth Bits: " << wind.GetSettings().DepthBits << endl;
     ppu = new PPU(this, &wind);
@@ -508,7 +513,7 @@ void Machine::run(bool debug) {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');
-    //debug = true;
+    debug = true;
     while(1) {
         try {
             if(debug)
@@ -517,7 +522,7 @@ void Machine::run(bool debug) {
             if(debug)
                 cout << inst << dump_regs() << endl; 
             execute_inst();
-            ppu->run();
+			ppu->run();
 			apu->update(inst.op.cycles + inst.extra_cycles);
 			//special handling for blargg tests
 			if(rom->prg_ram[1] == 0xde && rom->prg_ram[2] == 0xb0) {//&& mem[0x6003] == 0x61) {

@@ -17,11 +17,16 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
     cycle_count = 0;
     sl = 0;
     cyc = 0;
+	pmask = 0;
+	pctrl = 0;
     memset(mem, 0xff, 0x4000);
     mirror_table = new word[0x4000];
     for(int i = 0; i < 0x4000; i++)
         mirror_table[i] = i;
     set_mirror(0x3000, 0x2000, 0xf00);
+	if(mach->rom->flags6 & 8) {
+		cout << "4 screen!!!!" << endl;
+	}
     if(mach->rom->flags6 & 1) {
         set_mirror(0x2800, 0x2000, 0x400);
         set_mirror(0x2c00, 0x2400, 0x400);
@@ -127,24 +132,24 @@ byte PPU::get_mem_mirrored(word addr) {
 
 byte PPU::get_mem(word addr) {
     if(addr < 0x2000) {
-        return mach->rom->chr_rom[addr];
+        return mach->rom->chr_rom[(addr&0x1000)>>12][addr&0xfff];
     } else if(addr < 0x3000) {
         return mem[mirror_table[addr]];
     } else if(addr < 0x3f00) {
         return get_mem(addr - 0x1000);
     } else {
-        if((addr & 3) == 0) addr = 0;
+        if((addr & 0xf) == 0) addr = 0;
         return mem[0x3f00 + (addr&0x1f)];
     }
 }
 
 void PPU::set_mem(word addr, byte val) {
     if(addr < 0x2000) {
-        mach->rom->chr_rom[addr] = val;
+        mach->rom->chr_rom[(addr&0x1000)>>12][addr&0xfff] = val;
     } else if(addr < 0x3f00) {
         mem[mirror_table[addr]] = val;
     } else {
-        if((addr & 3) == 0) addr = 0;
+        if((addr & 0xf) == 0) addr = 0;
         mem[0x3f00 + (addr&0x1f)] = val;
     }
 }
@@ -178,8 +183,10 @@ void PPU::new_scanline() {
 }
 
 void PPU::do_vblank(bool rendering_enabled) {
-    int cycles = cycle_count * 3 - cycle_count;
-    pstat &= ~(1 << 7);
+    int cycles = mach->cycle_count * 3 - cycle_count;
+	if(last_vblank_end < last_vblank_start)
+		last_vblank_end = mach->cycle_count;
+	pstat &= ~(1 << 7);
     if(341 - cyc > cycles) {
         cyc += cycles;
         cycle_count += cycles;
@@ -233,13 +240,12 @@ void PPU::render_pixels(byte x, byte y, byte num) {
         if((hi|lo) && bg_enabled && !(xoff < 8 && !(pmask & 2)))
             coli |= at_val | hi | lo;
 		if(debug_flag) {
-			//cout << "on the outside" << endl;
-			//cout << sprite_enabled << endl;
+			cout << "on the outside" << endl;
+			cout << sprite_enabled << endl;
 			//cin.get();
 		}
         if(sprite_enabled && !(xoff < 8 && !(pmask & 4))) {
             Sprite *cur = NULL;
-
             for(list<Sprite*>::iterator i = cur_sprs.begin(); i != cur_sprs.end(); i++) {
                 if(((*i)->x <= xoff) && (xoff < ((*i)->x+8))) {
                     cur = (*i);
@@ -302,7 +308,7 @@ void PPU::render_pixels(byte x, byte y, byte num) {
 }
 
 void PPU::draw_frame() {
-    sl = -1;
+    sl = -2;
     wind->Draw(sf::Sprite(screen));
     //process events
     sf::Event event;
@@ -320,7 +326,6 @@ void PPU::draw_frame() {
     }
     wind->Display();
     //cout << "frame! " << (1/wind->GetFrameTime()) << endl;
-	//wind->set
 }
 
 void PPU::run() {
@@ -329,8 +334,11 @@ void PPU::run() {
     bool rendering_enabled = bg_enabled || sprite_enabled;
     int cycles = mach->cycle_count * 3 - cycle_count;
     while(cycle_count < mach->cycle_count * 3) {
-        if(sl < 0) {
+        if(sl == -2) {
             do_vblank(rendering_enabled);
+		} else if(sl == -1) {
+			cycle_count += 341;
+			sl += 1;
         } else if(sl < 240) {
             int todo;
             if(341 - cyc > cycles) {
@@ -360,6 +368,7 @@ void PPU::run() {
                 cyc = 0;
                 sl += 1;
                 pstat |= (1 << 7);
+				last_vblank_start = mach->cycle_count;
                 pstat &= ~(1 << 6);
                 if(pctrl & (1 << 7)) {
                     mach->nmi(0xfffa);

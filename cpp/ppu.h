@@ -34,6 +34,7 @@ private:
     sf::Image screen;
 	sf::RenderWindow debug;
 	sf::Image debugi;
+	int cycle_count;
     //memory
     byte* mem;
     byte mem_buf;
@@ -44,7 +45,6 @@ private:
     byte pctrl;
     //position
     byte xoff, fine_x;
-    int cycle_count;
     list<Sprite*> cur_sprs;
     //helpers
     void do_vblank(bool rendering_enabled);
@@ -53,8 +53,9 @@ private:
     void draw_frame();
     byte get_mem_mirrored(word addr);
     void set_mirror(word from, word to, word size);
-    
 public:
+	int last_vblank_start;
+	int last_vblank_end;
 	word vaddr, taddr;
     int sl;
     word cyc;
