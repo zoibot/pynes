@@ -223,7 +223,7 @@ void PPU::render_pixels(byte x, byte y, byte num) {
     }
     while(num) {
         word nt_addr = 0x2000 | (vaddr & 0xfff);
-        word at_base = (nt_addr & (~0xfff)) + 0x3c0;
+        word at_base = (nt_addr & (~0x3ff)) + 0x3c0;
         byte nt_val = get_mem(nt_addr);
         word pt_addr = (nt_val << 4) + base_pt_addr;
         byte row = (nt_addr >> 6) & 1;
@@ -396,8 +396,8 @@ void PPU::dump_nts() {
 	int x = 0;
 	int y = 0;
 	for(int nt = 0x2000; nt < 0x3000; nt+=0x400) {
+		word at_base = nt + 0x3c0;
 		for(int ntaddr = nt; ntaddr < nt+0x3c0; ntaddr++) {
-			word at_base = (ntaddr & (~0xfff)) + 0x3c0;
 			byte nt_val = get_mem(ntaddr);
 			word pt_addr = (nt_val << 4) + base_pt_addr;
 			byte row = (ntaddr >> 6) & 1;
