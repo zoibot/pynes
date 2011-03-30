@@ -42,8 +42,17 @@ Rom::Rom(istream& f) {
         cout << "loading trainer" << endl;
         f.read((char*)trainer, 512);
     }
-	mapper->load_prg(prg_size, f);
-	mapper->load_chr(chr_size, f);
+	prg_banks = new byte[prg_size * 0x4000];
+	f.read((char*)prg_banks, prg_size * 0x4000);
+	chr_banks = new byte[chr_size * 0x2000];
+	if(chr_size != 0)
+		f.read((char*)chr_banks, chr_size * 0x2000);
+	prg_rom = new byte*[2];
+	prg_rom[0] = prg_banks;
+	prg_rom[1] = prg_banks + (prg_size - 1) * 0x4000;
+	chr_rom = new byte*[2];
+	chr_rom[0] = chr_banks;
+	chr_rom[1] = chr_banks + 0x1000;
     //flags9,flags10
     cout << "prg size " << int(prg_size) << endl;
     cout << "chr size " << int(chr_size) << endl;
