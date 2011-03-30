@@ -67,16 +67,6 @@ byte Machine::get_mem(word addr) {
     } else if(addr < 0x8000) {
         return rom->prg_ram[addr-0x6000];
     } else {
-	/*	if(!(addr & 0x4000)) {
-			if((((UNROM*)(rom->mapper))->bank == 4)) {
-			
-			if(rom->prg_rom[0] == rom->prg_banks + (0x4000 * (4))) {
-				cout << "wtf " << HEX4(addr) << endl;
-			} else {
-				cout << "super wtf" << endl;
-			}
-			}
-		}*/
         return rom->prg_rom[(addr & 0x4000)>>14][addr&0x3fff];
     }
 }
@@ -511,7 +501,7 @@ void Machine::run(bool debug) {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');
-    debug = true;
+    //debug = true;
     while(1) {
         try {
             if(debug)
