@@ -19,7 +19,10 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
     cyc = 0;
 	pmask = 0;
 	pctrl = 0;
+    pstat = 0;
+    last_vblank_end = last_vblank_start = 0;
     memset(mem, 0xff, 0x4000);
+    memset(obj_mem, 0xff, 0x100);
     mirror_table = new word[0x4000];
     for(int i = 0; i < 0x4000; i++)
         mirror_table[i] = i;

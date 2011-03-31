@@ -122,6 +122,7 @@ byte APU::read_register(byte num) {
 }
 
 void APU::update(int cycles) {
+    return;
 	frame_cycles += cycles;
 	if((odd_clock && frame_cycles > 7457) || frame_cycles > 7458) {
 		if(!odd_clock)

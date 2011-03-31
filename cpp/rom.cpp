@@ -58,8 +58,10 @@ Rom::Rom(istream& f) {
     cout << "chr size " << int(chr_size) << endl;
     if(!prg_ram_size) {
         prg_ram = new byte[8192];
+        memset(prg_ram, 0xff, 0x2000);
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
+        memset(prg_ram, 0xff, 0x2000 * prg_ram_size);
     }
     cout << "Rom loaded successfully!" << endl;
 

@@ -173,9 +173,7 @@ Machine::Machine(Rom *rom) {
 	apu = new APU(this);
     //clock???
     mem = new byte[0x800];
-    for(int i = 0; i < 0x800; i++) {
-        mem[i] = 0xff;
-    }
+    memset(mem, 0xff, 0x800);
 }
 
 void Machine::branch(bool cond, Instruction inst) {
