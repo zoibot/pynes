@@ -53,6 +53,7 @@ private:
     void draw_frame();
     byte get_mem_mirrored(word addr);
     void set_mirror(word from, word to, word size);
+	NTMirroring current_mirroring;
 public:
 	int last_vblank_start;
 	int last_vblank_end;
@@ -63,6 +64,7 @@ public:
     word obj_addr;
 	void dump_nts();
     void run();
+	void set_mirroring(NTMirroring mirror);
     void write_register(byte num, byte val);
     byte read_register(byte num);
     byte get_mem(word addr);

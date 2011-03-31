@@ -30,12 +30,11 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
 	if(mach->rom->flags6 & 8) {
 		cout << "4 screen!!!!" << endl;
 	}
+	current_mirroring = FOUR_SCREEN;
     if(mach->rom->flags6 & 1) {
-        set_mirror(0x2800, 0x2000, 0x400);
-        set_mirror(0x2c00, 0x2400, 0x400);
+		set_mirroring(VERTICAL);
     } else {
-        set_mirror(0x2400, 0x2000, 0x400);
-        set_mirror(0x2c00, 0x2800, 0x400);
+		set_mirroring(HORIZONTAL);
     }
 }
 
@@ -328,18 +327,23 @@ void PPU::draw_frame() {
     wind->Draw(sf::Sprite(screen));
     //process events
     sf::Event event;
-    while (wind->GetEvent(event)) {
-        if (event.Type == sf::Event::Closed) {
-            wind->Close();
-            exit(0);
-        } else if (event.Type == sf::Event::KeyReleased) {
-            if(event.Key.Code == sf::Key::T) {
-                screen.SaveToFile("sshot.jpg");
-			} else if(event.Key.Code == sf::Key::N) {
-				dump_nts();
+	bool paused = false;
+	do {
+		while (wind->GetEvent(event)) {
+			if (event.Type == sf::Event::Closed) {
+				wind->Close();
+				exit(0);
+			} else if (event.Type == sf::Event::KeyReleased) {
+				if(event.Key.Code == sf::Key::T) {
+					screen.SaveToFile("sshot.jpg");
+				} else if(event.Key.Code == sf::Key::N) {
+					dump_nts();
+				} else if(event.Key.Code == sf::Key::P) {
+					paused = !paused;
+				}
 			}
-        }
-    }
+		}
+	} while (paused);
     wind->Display();
     //cout << "frame! " << (1/wind->GetFrameTime()) << endl;
 }
@@ -395,6 +399,38 @@ void PPU::run() {
             draw_frame();
         }
     }           
+}
+
+void PPU::set_mirroring(NTMirroring mirror) {
+	if(mirror == current_mirroring) return;
+	switch(mirror) {
+	case VERTICAL:
+		set_mirror(0x2000, 0x2000, 0x400);
+		set_mirror(0x2400, 0x2400, 0x400);
+		set_mirror(0x2800, 0x2000, 0x400);
+        set_mirror(0x2c00, 0x2400, 0x400);
+		break;
+	case HORIZONTAL:
+		set_mirror(0x2000, 0x2000, 0x400);
+		set_mirror(0x2400, 0x2000, 0x400);
+		set_mirror(0x2800, 0x2800, 0x400);
+        set_mirror(0x2c00, 0x2800, 0x400);
+		break;
+	case SINGLE_LOWER:
+		set_mirror(0x2000, 0x2000, 0x400);
+		set_mirror(0x2400, 0x2000, 0x400);
+		set_mirror(0x2800, 0x2000, 0x400);
+        set_mirror(0x2c00, 0x2000, 0x400);
+		break;
+	case SINGLE_UPPER:
+		set_mirror(0x2000, 0x2400, 0x400);
+		set_mirror(0x2400, 0x2400, 0x400);
+		set_mirror(0x2800, 0x2400, 0x400);
+        set_mirror(0x2c00, 0x2400, 0x400);
+		break;
+	default:
+		break;
+	}
 }
 
 

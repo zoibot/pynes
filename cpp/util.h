@@ -80,5 +80,12 @@ const int colors[] = {
 
 #define HEX4(w) hex<<setw(4)<<int(w)
 
+enum NTMirroring {
+	VERTICAL,
+	HORIZONTAL,
+	SINGLE_LOWER,
+	SINGLE_UPPER,
+	FOUR_SCREEN
+};
 
 #endif //UTIL_H

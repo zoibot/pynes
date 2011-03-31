@@ -18,6 +18,7 @@ struct Rom {
     byte* chr_rom[2];
     byte* chr_banks;
     byte* prg_ram;
+	NTMirroring mirror;
 
     Rom(istream& f);
 };
