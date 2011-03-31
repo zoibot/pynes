@@ -175,7 +175,7 @@ void PPU::new_scanline() {
     cur_sprs.clear();
     for(int i = 0; i < 64; i++) {
         Sprite *s = ((Sprite*)obj_mem)+i;
-        if(s->y <= (sl-1) && (sl-1) < s->y+8) {
+		if(s->y <= (sl-1) && ((sl-1) < s->y+8 || ((pctrl & (1<<5)) && (sl-1) < s->y+16))) {
 			if(i == 0 && s->y >= 238) {
 				//cout << "yo dawg" << endl;
 				debug_flag = true;
@@ -252,15 +252,28 @@ void PPU::render_pixels(byte x, byte y, byte num) {
             for(list<Sprite*>::iterator i = cur_sprs.begin(); i != cur_sprs.end(); i++) {
                 if(((*i)->x <= xoff) && (xoff < ((*i)->x+8))) {
                     cur = (*i);
-                    //TODO double high sprites
                     byte pal = (1<<4) | ((cur->attrs & 3) << 2);
                     byte xsoff = xoff-cur->x;
                     if(cur->attrs & (1<<6))
                         xsoff = 7-xsoff;
                     byte ysoff = y-cur->y-1;
-                    if(cur->attrs & (1<<7))
-                        ysoff = 7-ysoff;
-                    word pat = (cur->tile * 0x10) + base_spr_addr;
+					byte tile;
+					if(pctrl & (1<<5)) {
+						if(cur->attrs & (1<<7))
+							ysoff = 15-ysoff;
+						tile = cur->tile;
+						tile |= (tile & 1) << 12;
+						tile &= ~1;
+						if(ysoff > 7) {
+							ysoff -= 8;
+							tile |= 1;
+						}
+					} else {
+						tile = cur->tile + base_spr_addr;
+						if(cur->attrs & (1<<7))
+							ysoff = 7-ysoff;
+					}
+                    word pat = (tile * 0x10);
                     byte shi = get_mem(pat+8+ysoff);
                     byte slo = get_mem(pat+ysoff);
                     shi >>= (7-xsoff);

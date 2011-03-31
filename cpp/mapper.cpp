@@ -30,11 +30,8 @@ UNROM::UNROM(Rom *rom) : Mapper(rom) {
 	this->rom = rom;
 }
 void UNROM::prg_write(word addr, byte val) {
-	cout << (long)rom << endl;
-	cout << "switching banks " << int(val) << " " << (0x4000 * (val & 7)) << " " << (int)rom->prg_size << endl;
 	bank = val & 7;
 	rom->prg_rom[0] = rom->prg_banks + (0x4000 * bank);
-	cout << (long)rom->prg_rom[0] << " " << (int)rom->prg_rom[0][0x3fff] << endl;
 };
 void UNROM::load_prg(byte prg_size, istream& f) {
 	rom->prg_rom[0] = rom->prg_banks;
