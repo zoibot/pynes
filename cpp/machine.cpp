@@ -109,6 +109,7 @@ void Machine::set_mem(word addr, byte val) {
         rom->prg_ram[addr-0x6000] = val;
     } else {
 		rom->mapper->prg_write(addr, val);
+		ppu->set_mirroring(rom->mirror);
 	}
 }
 

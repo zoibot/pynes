@@ -31,11 +31,7 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
 		cout << "4 screen!!!!" << endl;
 	}
 	current_mirroring = FOUR_SCREEN;
-    if(mach->rom->flags6 & 1) {
-		set_mirroring(VERTICAL);
-    } else {
-		set_mirroring(HORIZONTAL);
-    }
+	set_mirroring(mach->rom->mirror);
 }
 
 byte PPU::read_register(byte num) {

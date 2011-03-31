@@ -78,6 +78,7 @@ void MMC1::prg_write(word addr, byte val) {
 	}
 	if(shift == 5) {
 		if(addr < 0xa000) {
+			cout << "setting mirroring " << (load & 3) << endl;
 			switch(load & 3) {
 			case 0:
 				rom->mirror = SINGLE_LOWER;
@@ -97,7 +98,7 @@ void MMC1::prg_write(word addr, byte val) {
 				update_prg_bank();
 			}
 			control = load;
-		} else if(addr < 0xc000) {
+		} else if(addr < 0xc000 && rom->chr_size != 0) {
 			cout << "switching char bank" << endl;
 			//chr bank 0
 			if(control & (1<<5)) {
@@ -107,7 +108,7 @@ void MMC1::prg_write(word addr, byte val) {
 				rom->chr_rom[0] = rom->chr_banks + 0x1000 * (load & 0x1e);
 				rom->chr_rom[1] = rom->chr_banks + 0x1000 * (load | 1);
 			}
-		} else if(addr < 0xe000) {
+		} else if(addr < 0xe000 && rom->chr_size != 0) {
 			cout << "switching char bank" << endl;
 			//chr bank 1
 			if(control & (1<<5)) {
