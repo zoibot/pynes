@@ -31,13 +31,8 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
 	if(mach->rom->flags6 & 8) {
 		cout << "4 screen!!!!" << endl;
 	}
-    if(mach->rom->flags6 & 1) {
-        set_mirror(0x2800, 0x2000, 0x400);
-        set_mirror(0x2c00, 0x2400, 0x400);
-    } else {
-        set_mirror(0x2400, 0x2000, 0x400);
-        set_mirror(0x2c00, 0x2800, 0x400);
-    }
+	current_mirroring = FOUR_SCREEN;
+	set_mirroring(mach->rom->mirror);
 }
 
 byte PPU::read_register(byte num) {
@@ -176,7 +171,7 @@ void PPU::new_scanline() {
     cur_sprs.clear();
     for(int i = 0; i < 64; i++) {
         Sprite *s = ((Sprite*)obj_mem)+i;
-        if(s->y <= (sl-1) && (sl-1) < s->y+8) {
+		if(s->y <= (sl-1) && ((sl-1) < s->y+8 || ((pctrl & (1<<5)) && (sl-1) < s->y+16))) {
 			if(i == 0 && s->y >= 238) {
 				//cout << "yo dawg" << endl;
 				debug_flag = true;
@@ -224,7 +219,7 @@ void PPU::render_pixels(byte x, byte y, byte num) {
     }
     while(num) {
         word nt_addr = 0x2000 | (vaddr & 0xfff);
-        word at_base = (nt_addr & (~0xfff)) + 0x3c0;
+        word at_base = (nt_addr & (~0x3ff)) + 0x3c0;
         byte nt_val = get_mem(nt_addr);
         word pt_addr = (nt_val << 4) + base_pt_addr;
         byte row = (nt_addr >> 6) & 1;
@@ -253,15 +248,28 @@ void PPU::render_pixels(byte x, byte y, byte num) {
             for(list<Sprite*>::iterator i = cur_sprs.begin(); i != cur_sprs.end(); i++) {
                 if(((*i)->x <= xoff) && (xoff < ((*i)->x+8))) {
                     cur = (*i);
-                    //TODO double high sprites
                     byte pal = (1<<4) | ((cur->attrs & 3) << 2);
                     byte xsoff = xoff-cur->x;
                     if(cur->attrs & (1<<6))
                         xsoff = 7-xsoff;
                     byte ysoff = y-cur->y-1;
-                    if(cur->attrs & (1<<7))
-                        ysoff = 7-ysoff;
-                    word pat = (cur->tile * 0x10) + base_spr_addr;
+					byte tile;
+					if(pctrl & (1<<5)) {
+						if(cur->attrs & (1<<7))
+							ysoff = 15-ysoff;
+						tile = cur->tile;
+						tile |= (tile & 1) << 12;
+						tile &= ~1;
+						if(ysoff > 7) {
+							ysoff -= 8;
+							tile |= 1;
+						}
+					} else {
+						tile = cur->tile + base_spr_addr;
+						if(cur->attrs & (1<<7))
+							ysoff = 7-ysoff;
+					}
+                    word pat = (tile * 0x10);
                     byte shi = get_mem(pat+8+ysoff);
                     byte slo = get_mem(pat+ysoff);
                     shi >>= (7-xsoff);
@@ -317,18 +325,23 @@ void PPU::draw_frame() {
     wind->Draw(x);
     //process events
     sf::Event event;
-    while (wind->GetEvent(event)) {
-        if (event.Type == sf::Event::Closed) {
-            wind->Close();
-            exit(0);
-        } else if (event.Type == sf::Event::KeyReleased) {
-            if(event.Key.Code == sf::Key::T) {
-                screen.SaveToFile("sshot.jpg");
-			} else if(event.Key.Code == sf::Key::N) {
-				dump_nts();
+	bool paused = false;
+	do {
+		while (wind->GetEvent(event)) {
+			if (event.Type == sf::Event::Closed) {
+				wind->Close();
+				exit(0);
+			} else if (event.Type == sf::Event::KeyReleased) {
+				if(event.Key.Code == sf::Key::T) {
+					screen.SaveToFile("sshot.jpg");
+				} else if(event.Key.Code == sf::Key::N) {
+					dump_nts();
+				} else if(event.Key.Code == sf::Key::P) {
+					paused = !paused;
+				}
 			}
-        }
-    }
+		}
+	} while (paused);
     wind->Display();
     //cout << "frame! " << (1/wind->GetFrameTime()) << endl;
 }
@@ -386,6 +399,38 @@ void PPU::run() {
     }           
 }
 
+void PPU::set_mirroring(NTMirroring mirror) {
+	if(mirror == current_mirroring) return;
+	switch(mirror) {
+	case VERTICAL:
+		set_mirror(0x2000, 0x2000, 0x400);
+		set_mirror(0x2400, 0x2400, 0x400);
+		set_mirror(0x2800, 0x2000, 0x400);
+        set_mirror(0x2c00, 0x2400, 0x400);
+		break;
+	case HORIZONTAL:
+		set_mirror(0x2000, 0x2000, 0x400);
+		set_mirror(0x2400, 0x2000, 0x400);
+		set_mirror(0x2800, 0x2800, 0x400);
+        set_mirror(0x2c00, 0x2800, 0x400);
+		break;
+	case SINGLE_LOWER:
+		set_mirror(0x2000, 0x2000, 0x400);
+		set_mirror(0x2400, 0x2000, 0x400);
+		set_mirror(0x2800, 0x2000, 0x400);
+        set_mirror(0x2c00, 0x2000, 0x400);
+		break;
+	case SINGLE_UPPER:
+		set_mirror(0x2000, 0x2400, 0x400);
+		set_mirror(0x2400, 0x2400, 0x400);
+		set_mirror(0x2800, 0x2400, 0x400);
+        set_mirror(0x2c00, 0x2400, 0x400);
+		break;
+	default:
+		break;
+	}
+}
+
 
 void PPU::dump_nts() {
 	debug.Create(sf::VideoMode(512, 480), "debug");
@@ -398,8 +443,8 @@ void PPU::dump_nts() {
 	int x = 0;
 	int y = 0;
 	for(int nt = 0x2000; nt < 0x3000; nt+=0x400) {
+		word at_base = nt + 0x3c0;
 		for(int ntaddr = nt; ntaddr < nt+0x3c0; ntaddr++) {
-			word at_base = (ntaddr & (~0xfff)) + 0x3c0;
 			byte nt_val = get_mem(ntaddr);
 			word pt_addr = (nt_val << 4) + base_pt_addr;
 			byte row = (ntaddr >> 6) & 1;

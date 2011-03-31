@@ -22,13 +22,24 @@ Rom::Rom(istream& f) {
     cout << (flags7 &0xf) << endl;
     if((flags7 & 0xf) == 0x8)
         cout << "ines 2" << endl;
+	if(flags6 & 1) {
+		mirror = VERTICAL;
+	} else {
+		mirror = HORIZONTAL;
+	}
     mapper_num = ((flags6 & 0xf0) >> 4) | (flags7 & 0xf0);
 	switch(mapper_num) {
 	case 0:
 		mapper = new NROM(this);
 		break;
+	case 1:
+		mapper = new MMC1(this);
+		break;
 	case 2:
 		mapper = new UNROM(this);
+		break;
+	case 3:
+		mapper = new CNROM(this);
 		break;
 	default:
 		cout << "Unsupported Mapper" << endl;
@@ -44,14 +55,15 @@ Rom::Rom(istream& f) {
     }
 	prg_banks = new byte[prg_size * 0x4000];
 	f.read((char*)prg_banks, prg_size * 0x4000);
-	chr_banks = new byte[chr_size * 0x2000];
-	if(chr_size != 0)
+	
+	if(chr_size != 0) {
+		chr_banks = new byte[chr_size * 0x2000];
 		f.read((char*)chr_banks, chr_size * 0x2000);
-	prg_rom = new byte*[2];
-	prg_rom[0] = prg_banks;
-	prg_rom[1] = prg_banks + (prg_size - 1) * 0x4000;
-	chr_rom = new byte*[2];
-	chr_rom[0] = chr_banks;
+	} else {
+		chr_banks = new byte[0x2000];
+	}
+	mapper->load_prg(prg_size);
+	mapper->load_chr();
 	chr_rom[1] = chr_banks + 0x1000;
     //flags9,flags10
     cout << "prg size " << int(prg_size) << endl;

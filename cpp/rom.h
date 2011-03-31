@@ -13,11 +13,12 @@ struct Rom {
     byte mapper_num;
 	Mapper *mapper;
     byte trainer[512];
-    byte** prg_rom;
+    byte* prg_rom[2];
     byte* prg_banks;
-    byte** chr_rom;
+    byte* chr_rom[2];
     byte* chr_banks;
     byte* prg_ram;
+	NTMirroring mirror;
 
     Rom(istream& f);
 };
