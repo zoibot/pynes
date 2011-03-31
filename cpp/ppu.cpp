@@ -14,6 +14,7 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
     obj_addr = 0;
     mem = new byte[0x4000];
     obj_mem = new byte[0x100];
+    debug_flag = false;
     cycle_count = 0;
     sl = 0;
     cyc = 0;
@@ -312,7 +313,8 @@ void PPU::render_pixels(byte x, byte y, byte num) {
 
 void PPU::draw_frame() {
     sl = -2;
-    wind->Draw(sf::Sprite(screen));
+    sf::Sprite x(screen);
+    wind->Draw(x);
     //process events
     sf::Event event;
     while (wind->GetEvent(event)) {
