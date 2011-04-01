@@ -11,7 +11,7 @@ NROM::NROM(Rom *rom) : Mapper(rom) {
 void NROM::prg_write(word addr, byte val) {};
 void NROM::load_prg(int prg_size) {
 	rom->prg_rom[0] = rom->prg_banks;
-	rom->prg_rom[1] = rom->prg_banks;
+	rom->prg_rom[1] = rom->prg_banks + 0x4000 * (prg_size - 1);
 }
 void NROM::load_chr() {
 	rom->chr_rom[0] = rom->chr_banks;
@@ -78,7 +78,6 @@ void MMC1::prg_write(word addr, byte val) {
 	}
 	if(shift == 5) {
 		if(addr < 0xa000) {
-			cout << "setting mirroring " << (load & 3) << endl;
 			switch(load & 3) {
 			case 0:
 				rom->mirror = SINGLE_LOWER;

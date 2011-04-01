@@ -72,6 +72,7 @@ public:
     void nmi(word addr);
     void execute_inst();
     void run(bool debug);
+    void save();
 
 	byte get_mem(word addr);
     byte get_code_mem(word addr);

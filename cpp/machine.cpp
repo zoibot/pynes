@@ -46,6 +46,11 @@ void Machine::reset() {
     pc = get_mem(0xfffc) + (get_mem(0xfffd) << 8);
 }
 
+void Machine::save() {
+    ofstream save("test.sav");
+    save.write((char*)rom->prg_ram, 0x2000);
+}
+
 byte Machine::get_mem(word addr) {
     if(addr < 0x2000) {
         return mem[addr & 0x7ff];

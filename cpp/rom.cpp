@@ -1,5 +1,6 @@
 #include <cstring>
 #include <cstdlib>
+#include <fstream>
 
 #include "rom.h"
 #include "mapper.h"
@@ -64,13 +65,14 @@ Rom::Rom(istream& f) {
 	}
 	mapper->load_prg(prg_size);
 	mapper->load_chr();
-	chr_rom[1] = chr_banks + 0x1000;
     //flags9,flags10
     cout << "prg size " << int(prg_size) << endl;
     cout << "chr size " << int(chr_size) << endl;
     if(!prg_ram_size) {
+        ifstream test("test.sav");
         prg_ram = new byte[8192];
-        memset(prg_ram, 0xff, 0x2000);
+        //memset(prg_ram, 0xff, 0x2000);
+        test.read((char*)prg_ram, 0x2000);
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
         memset(prg_ram, 0xff, 0x2000 * prg_ram_size);

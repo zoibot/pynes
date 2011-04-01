@@ -163,10 +163,11 @@ void PPU::new_scanline() {
         }
     }
     vaddr &= ~0x741f;
-    vaddr |= taddr & 0x1f;
-    vaddr |= taddr & (0x400);
+    vaddr |= next_taddr & 0x1f;
+    vaddr |= next_taddr & (0x400);
     vaddr |= ((fineY+1)&7) << 12;
     fine_x = xoff;
+    next_taddr = -1;
     //sprites
     cur_sprs.clear();
     for(int i = 0; i < 64; i++) {
@@ -258,18 +259,18 @@ void PPU::render_pixels(byte x, byte y, byte num) {
 						if(cur->attrs & (1<<7))
 							ysoff = 15-ysoff;
 						tile = cur->tile;
-						tile |= (tile & 1) << 12;
+						base_spr_addr = (tile & 1) << 12;
 						tile &= ~1;
 						if(ysoff > 7) {
 							ysoff -= 8;
 							tile |= 1;
 						}
 					} else {
-						tile = cur->tile + base_spr_addr;
+						tile = cur->tile;
 						if(cur->attrs & (1<<7))
 							ysoff = 7-ysoff;
 					}
-                    word pat = (tile * 0x10);
+                    word pat = (tile * 0x10) | base_spr_addr;
                     byte shi = get_mem(pat+8+ysoff);
                     byte slo = get_mem(pat+ysoff);
                     shi >>= (7-xsoff);
@@ -277,11 +278,11 @@ void PPU::render_pixels(byte x, byte y, byte num) {
                     shi <<= 1;
                     slo >>= (7-xsoff);
                     slo &= 1;
-					if(y >= 238) {
+					/*if(y >= 238) {
 						cout << "spr " << endl;
 						cout << "y: " << cur->y << endl;
 						cout << "x: " << cur->x << endl;
-					}
+					}*/
                     if((cur == (Sprite*)obj_mem) && (shi|slo) && (hi|lo) && bg_enabled && !(xoff < 8 && !(pmask & 2)) && xoff < 255) {
                         pstat |= 1<<6; // spr hit 0
                        /* cout << " sprite 0 hit " << endl;
@@ -329,6 +330,7 @@ void PPU::draw_frame() {
 	do {
 		while (wind->GetEvent(event)) {
 			if (event.Type == sf::Event::Closed) {
+                mach->save();
 				wind->Close();
 				exit(0);
 			} else if (event.Type == sf::Event::KeyReleased) {
@@ -367,6 +369,8 @@ void PPU::run() {
             int y = sl;
             if(rendering_enabled && cyc < 256) {
                 render_pixels(cyc, y, min(todo, 256-cyc));
+            } else if(cyc >= 257) {
+                next_taddr = taddr;
             }
             cyc += todo;
             cycle_count += todo;
@@ -411,8 +415,8 @@ void PPU::set_mirroring(NTMirroring mirror) {
 	case HORIZONTAL:
 		set_mirror(0x2000, 0x2000, 0x400);
 		set_mirror(0x2400, 0x2000, 0x400);
-		set_mirror(0x2800, 0x2800, 0x400);
-        set_mirror(0x2c00, 0x2800, 0x400);
+		set_mirror(0x2800, 0x2400, 0x400);
+        set_mirror(0x2c00, 0x2400, 0x400);
 		break;
 	case SINGLE_LOWER:
 		set_mirror(0x2000, 0x2000, 0x400);

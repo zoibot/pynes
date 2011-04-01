@@ -58,6 +58,7 @@ public:
 	int last_vblank_start;
 	int last_vblank_end;
 	word vaddr, taddr;
+    word next_taddr;
     int sl;
     word cyc;
     byte* obj_mem;
