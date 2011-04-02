@@ -28,6 +28,7 @@ word Machine::next_word() {
 void Machine::nmi(word addr) {
     push2(pc);
     push(p);
+	set_flag(I, true);
     pc = get_mem(addr) + (get_mem(addr+1)<<8);
 }
 
@@ -398,9 +399,20 @@ void Machine::execute_inst() {
         compare(a, (inst.operand-1)&0xff);
         break;
     case ISB:
-        //operand = (inst.operand + 1) & 0xff;
-        //set_mem(addr, operand);
-        //NEED SBC HERE
+        inst.operand = (inst.operand + 1) & 0xff;
+        set_mem(inst.addr, inst.operand);
+		a7 = a & (1 << 7);
+        m7 = inst.operand & (1 << 7);
+        old_a = a;
+        result = a - inst.operand;
+        if(!get_flag(C)) {
+            result -= 1;
+        }
+        a = result & 0xff;
+        set_flag(C, result < 0x100);
+        set_nz(a);
+        r7 = a & (1 << 7);
+        set_flag(V, !((a7 == m7) || ((a7 != m7) && (r7 == a7))));
         break;
     case LSR_A:
         set_flag(C, a & 1);
@@ -526,8 +538,31 @@ void Machine::execute_inst() {
         a |= inst.operand;
         set_nz(a);
         break;
+	case SRE:
+		set_flag(C, inst.operand & 1);
+        inst.operand >>= 1;
+        set_mem(inst.addr, inst.operand);
+        a ^= inst.operand;
+        set_nz(a);
+		break;
     case RRA:
-    case SRE:
+        m = inst.operand & 1;
+        inst.operand >>= 1;
+        if(get_flag(C))
+            inst.operand |= 1 << 7;
+        set_mem(inst.addr, inst.operand);
+		a7 = a & (1 << 7);
+        m7 = inst.operand & (1 << 7);
+        result = a + inst.operand;
+        if(m) {
+            result += 1;
+        }
+        a = result & 0xff;
+        set_flag(C, result > 0xff);
+        set_nz(a);
+        r7 = a & (1 << 7);
+        set_flag(V, !((a7 != m7) || ((a7 == m7) && (m7 == r7))));
+		break;
     default:
         cout << "Unsupported opcode! " << int(inst.opcode) << endl;
         cout << inst.op.op << endl;

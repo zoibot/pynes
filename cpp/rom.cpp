@@ -71,8 +71,8 @@ Rom::Rom(istream& f) {
     if(!prg_ram_size) {
         ifstream test("test.sav");
         prg_ram = new byte[8192];
-        //memset(prg_ram, 0xff, 0x2000);
-        test.read((char*)prg_ram, 0x2000);
+        memset(prg_ram, 0xff, 0x2000);
+        //test.read((char*)prg_ram, 0x2000);
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
         memset(prg_ram, 0xff, 0x2000 * prg_ram_size);
