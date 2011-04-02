@@ -340,6 +340,13 @@ void PPU::draw_frame() {
 					dump_nts();
 				} else if(event.Key.Code == sf::Key::P) {
 					paused = !paused;
+				} else if(event.Key.Code == sf::Key::Y) {
+					for(int i = 0; i < 64; i++) {
+						Sprite *s = ((Sprite*)obj_mem)+i;
+						if(s->y < 16) {
+							cout << (int)s->y << endl;
+						}
+					}
 				}
 			}
 		}

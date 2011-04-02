@@ -198,6 +198,7 @@ void Machine::execute_inst() {
     word result;
     switch(inst.op.op) {
     case NOP:
+	case DOP:
         break;
     case JMP:
         pc = inst.addr;
@@ -324,6 +325,11 @@ void Machine::execute_inst() {
         a &= inst.operand;
         set_nz(a);
         break;
+	case AAC:
+		a &= inst.operand;
+		set_nz(a);
+		set_flag(C, a & 0x80);
+		break;
     case ORA:
         a |= inst.operand;
         set_nz(a);
@@ -354,7 +360,7 @@ void Machine::execute_inst() {
             result -= 1;
         }
         a = result & 0xff;
-        set_flag(C, old_a >= inst.operand);
+        set_flag(C, result < 0x100);
         set_nz(a);
         r7 = a & (1 << 7);
         set_flag(V, !((a7 == m7) || ((a7 != m7) && (r7 == a7))));
@@ -418,6 +424,21 @@ void Machine::execute_inst() {
         set_mem(inst.addr, inst.operand);
         set_nz(inst.operand);
         break;
+	case ASR:
+		a &= inst.operand;
+		set_flag(C, a & 1);
+		a >>= 1;
+		set_nz(a);
+		break;
+	case ARR:
+		a &= inst.operand;
+		a >>= 1;
+		if(get_flag(C))
+			a |= 0x80;
+		set_flag(C, a & (1<<6));
+		set_flag(V, ((a & (1<<5))<<1)  ^ (a & (1<<6)));
+		set_nz(a);
+		break;
     case TSX:
         x = s;
         set_nz(x);
@@ -433,6 +454,19 @@ void Machine::execute_inst() {
         a = x;
         set_nz(a);
         break;
+	case ATX:
+		a |= 0xff;
+		a &= inst.operand;
+		x = a;
+		set_nz(x);
+		break;
+	case AXS:
+		x = a & x;
+		result = x - inst.operand;
+		set_flag(C, result < 0x100);
+		x = result & 0xff;
+		set_nz(x);
+		break;
     case ROR_A:
         m = a & 1;
         a >>= 1;

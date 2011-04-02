@@ -1,2 +1,4 @@
 *scaling
+*saving really
+*savestates
 *more debug features (menu??)
