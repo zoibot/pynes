@@ -61,6 +61,7 @@ class Machine {
 
 public:
     Machine(Rom *rom);
+	bool debug;
 	   
 	int pc;
     byte a, s, p;
@@ -71,7 +72,7 @@ public:
     void reset();
     void nmi(word addr);
     void execute_inst();
-    void run(bool debug);
+    void run();
     void save();
 
 	byte get_mem(word addr);

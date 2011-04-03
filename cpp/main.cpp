@@ -22,7 +22,8 @@ int main(int argc, char *argv[]) {
     cout << "Loading Rom: " << argv[1] << endl;
     Rom rom(romf);
     Machine mach(&rom);
-    mach.run(debug);
+	mach.debug = debug;
+    mach.run();
     cin.get();
     return 0;
 }

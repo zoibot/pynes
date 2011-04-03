@@ -161,6 +161,7 @@ string Machine::dump_regs() {
 Machine::Machine(Rom *rom) {
     this->rom = rom;
     inst.mach = this;
+	debug = false;
     //Display
     wind.Create(sf::VideoMode(256, 240), "asdfNES", sf::Style::Close);
     wind.SetFramerateLimit(60);// what is the right limit??
@@ -184,7 +185,6 @@ void Machine::branch(bool cond, Instruction inst) {
 }
 
 void Machine::compare(byte a, byte b) {
-    //hopefully these conversions will work...
     char sa = a;
     char sb = b;
     set_flag(N, (sa-sb) & (1 << 7));
@@ -479,6 +479,16 @@ void Machine::execute_inst() {
 		x = result & 0xff;
 		set_nz(x);
 		break;
+	case SYA:
+		m = y & (inst.args[1] + 1);
+		if(!inst.extra_cycles)
+			set_mem(inst.addr, m);
+		break;
+	case SXA:
+		m = x & (inst.args[1] + 1);
+		if(!inst.extra_cycles)
+			set_mem(inst.addr, m);
+		break;
     case ROR_A:
         m = a & 1;
         a >>= 1;
@@ -566,13 +576,14 @@ void Machine::execute_inst() {
     default:
         cout << "Unsupported opcode! " << int(inst.opcode) << endl;
         cout << inst.op.op << endl;
+		cout << opnames[inst.op.op] << endl;
         throw new runtime_error("Unsupported opcode");
         break;
     }
     cycle_count += inst.op.cycles + inst.extra_cycles;
 }
 
-void Machine::run(bool debug) {
+void Machine::run() {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');

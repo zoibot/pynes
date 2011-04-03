@@ -2,6 +2,7 @@
 #include "machine.h"
 
 Opcode::Opcode() {
+	this->invalid = true;
 }
 
 Opcode::Opcode(Op op, AddrMode amode, int cycles) {

@@ -2,3 +2,8 @@
 *saving really
 *savestates
 *more debug features (menu??)
+
+#known bugs
+-timing is off for vblank
+-sp hit 0 borked
+-slalom scrolling

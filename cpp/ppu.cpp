@@ -158,12 +158,13 @@ void PPU::new_scanline() {
     int fineY = (vaddr & 0x7000) >> 12;
     if(fineY == 7) {
         if((vaddr & 0x3ff) >= 0x3c0) {
-			if((vaddr & 0x3ff) == 0x3c0) {
-				vaddr ^= 0x800;
-			}
-            vaddr &= ~0x3ff;
+			vaddr &= ~0x3ff;
         } else {
 			vaddr += 0x20;
+			if((vaddr & 0x3ff) >= 0x3c0) {
+				vaddr &= ~0x3ff;
+				vaddr ^= 0x800;
+			}
 		}
     }
     vaddr &= ~0x741f;
@@ -350,6 +351,8 @@ void PPU::draw_frame() {
 							cout << (int)s->y << endl;
 						}
 					}
+				} else if(event.Key.Code == sf::Key::D) {
+					mach->debug = false;
 				}
 			}
 		}
