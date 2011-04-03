@@ -105,7 +105,7 @@ void Machine::set_mem(word addr, byte val) {
                 byte addr = v + ppu->obj_addr;
                 ppu->obj_mem[addr] = mem[(val << 8)+v];
             }
-            //TODO ppu set obj mem
+            //TODO cycles???
             break;
         default:
             apu->write_register(addr - 0x4000, val);

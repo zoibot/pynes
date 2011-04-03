@@ -58,4 +58,13 @@ public:
 	MMC1(Rom *rom);
 };
 
+class AXROM : public Mapper {
+public:
+	void prg_write(word addr, byte val);
+	void load_prg(int prg_size);
+	void load_chr();
+	string name();
+	AXROM(Rom *rom);
+};
+
 #endif //MAPPER _H

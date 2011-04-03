@@ -155,3 +155,26 @@ void MMC1::load_chr() {
 string MMC1::name() {
 	return "MMC1";
 };
+
+AXROM::AXROM(Rom *rom) : Mapper(rom) {
+}
+void AXROM::prg_write(word addr, byte val) {
+	rom->prg_rom[0] = rom->prg_banks + 0x8000 * (val & 7);
+	rom->prg_rom[1] = rom->prg_banks + 0x8000 * (val & 7) + 0x4000;
+	if(val & 0x10) {
+		rom->mirror = SINGLE_LOWER;
+	} else {
+		rom->mirror = SINGLE_UPPER;
+	}
+};
+void AXROM::load_prg(int prg_size) {
+	rom->prg_rom[0] = rom->prg_banks;
+	rom->prg_rom[1] = rom->prg_banks + 0x4000;// * (prg_size - 1);
+}
+void AXROM::load_chr() {
+	rom->chr_rom[0] = rom->chr_banks;
+	rom->chr_rom[1] = rom->chr_banks + 0x1000;
+}
+string AXROM::name() {
+	return "AxROM";
+};

@@ -42,6 +42,9 @@ Rom::Rom(istream& f) {
 	case 3:
 		mapper = new CNROM(this);
 		break;
+	case 7:
+		mapper = new AXROM(this);
+		break;
 	default:
 		cout << "Unsupported Mapper" << endl;
         cout << int(mapper_num) << endl;

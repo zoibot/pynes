@@ -33,6 +33,7 @@ PPU::PPU(Machine *mach, sf::RenderWindow* wind) {
 	}
 	current_mirroring = FOUR_SCREEN;
 	set_mirroring(mach->rom->mirror);
+	//set_mirroring(SINGLE_LOWER);
 }
 
 byte PPU::read_register(byte num) {
@@ -156,11 +157,14 @@ void PPU::set_mem(word addr, byte val) {
 void PPU::new_scanline() {
     int fineY = (vaddr & 0x7000) >> 12;
     if(fineY == 7) {
-        vaddr += 0x20;
         if((vaddr & 0x3ff) >= 0x3c0) {
+			if((vaddr & 0x3ff) == 0x3c0) {
+				vaddr ^= 0x800;
+			}
             vaddr &= ~0x3ff;
-            vaddr ^= 0x800;
-        }
+        } else {
+			vaddr += 0x20;
+		}
     }
     vaddr &= ~0x741f;
     vaddr |= next_taddr & 0x1f;
@@ -174,7 +178,6 @@ void PPU::new_scanline() {
         Sprite *s = ((Sprite*)obj_mem)+i;
 		if(s->y <= (sl-1) && ((sl-1) < s->y+8 || ((pctrl & (1<<5)) && (sl-1) < s->y+16))) {
 			if(i == 0 && s->y >= 238) {
-				//cout << "yo dawg" << endl;
 				debug_flag = true;
 			}
             cur_sprs.push_back(s);
@@ -436,6 +439,18 @@ void PPU::set_mirroring(NTMirroring mirror) {
 		set_mirror(0x2400, 0x2400, 0x400);
 		set_mirror(0x2800, 0x2400, 0x400);
         set_mirror(0x2c00, 0x2400, 0x400);
+		break;
+	case SINGLE_THIRD:
+		set_mirror(0x2000, 0x2800, 0x400);
+		set_mirror(0x2400, 0x2800, 0x400);
+		set_mirror(0x2800, 0x2800, 0x400);
+        set_mirror(0x2c00, 0x2800, 0x400);
+		break;
+	case SINGLE_FOURTH:
+		set_mirror(0x2000, 0x2c00, 0x400);
+		set_mirror(0x2400, 0x2c00, 0x400);
+		set_mirror(0x2800, 0x2c00, 0x400);
+        set_mirror(0x2c00, 0x2c00, 0x400);
 		break;
 	default:
 		break;
