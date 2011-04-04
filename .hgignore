@@ -1,2 +1,6 @@
 .*.pyc
 .*.swp
+.*.o
+.*.sav
+cpp/nes
+test/.*

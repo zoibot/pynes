@@ -49,7 +49,7 @@ class Machine {
     bool get_flag(byte flag);
     void set_nz(byte val);
 
-	void branch(bool cond, Instruction inst);
+	void branch(bool cond, Instruction &inst);
 	void compare(byte a, byte b);
 
     void push2(word val);

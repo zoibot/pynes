@@ -9,8 +9,18 @@ Opcode::Opcode(Op op, AddrMode amode, int cycles) {
 	this->op = op;
 	this->addr_mode = amode;
 	this->cycles = cycles;
+    this->extra_page_cross = 1;
 	if(op == STA || op == STX || op == STY)
 		store = true;
+}
+
+Opcode::Opcode(Op op, AddrMode amode, int cycles, int extra_page_cross) { 
+	this->op = op;
+	this->addr_mode = amode;
+	this->cycles = cycles;
+	if(op == STA || op == STX || op == STY)
+		store = true;
+    this->extra_page_cross = extra_page_cross;
 }
 
 Instruction::Instruction() {
@@ -124,7 +134,7 @@ void Instruction::next_instruction() {
 			operand = mach->get_mem(addr);
 		}
 		if((i_addr & 0xff00) != (addr & 0xff00)) {
-			extra_cycles += 1;
+			extra_cycles += op.extra_page_cross;
 		}
 		args[0] = i_addr & 0xff;
 		args[1] = (i_addr & 0xff00) >> 8;
@@ -137,7 +147,7 @@ void Instruction::next_instruction() {
 			operand = mach->get_mem(addr);
 		}
 		if((i_addr & 0xff00) != (addr & 0xff00)) {
-			extra_cycles += 1;
+			extra_cycles += op.extra_page_cross;
 		}
 		args[0] = i_addr & 0xff;
 		args[1] = (i_addr & 0xff00) >> 8;
@@ -166,7 +176,7 @@ void Instruction::next_instruction() {
 			operand = mach->get_mem(addr);
 		}
 		if((addr & 0xff00) != ((addr - mach->y) & 0xff00)) {
-			extra_cycles += 1;
+			extra_cycles += op.extra_page_cross;
 		}
 		args[0] = i_addr;
 		arglen = 1;

@@ -49,7 +49,7 @@ void Machine::reset() {
 
 void Machine::save() {
 	cout << " saving to " << (rom->fname + ".sav") << endl;
-	ofstream save(rom->fname + ".sav");
+	ofstream save((rom->fname + ".sav").c_str());
     save.write((char*)rom->prg_ram, 0x2000);
 	save.close();
 }
@@ -166,7 +166,7 @@ Machine::Machine(Rom *rom) {
 	debug = false;
     //Display
     wind.Create(sf::VideoMode(256, 240), "asdfNES", sf::Style::Close);
-    wind.SetFramerateLimit(60);// what is the right limit??
+    //wind.SetFramerateLimit(60);// what is the right limit??
     //print surface bits
     cout << "Depth Bits: " << wind.GetSettings().DepthBits << endl;
     ppu = new PPU(this, &wind);
@@ -176,7 +176,7 @@ Machine::Machine(Rom *rom) {
     memset(mem, 0xff, 0x800);
 }
 
-void Machine::branch(bool cond, Instruction inst) {
+void Machine::branch(bool cond, Instruction &inst) {
     if(cond) {
         inst.extra_cycles += 1;
         if ((inst.addr & 0xff00) != (pc & 0xff00)) {
@@ -197,11 +197,11 @@ void Machine::compare(byte a, byte b) {
 void Machine::execute_inst() {
     byte m;
     byte a7, m7, r7;
-    byte old_a;
     word result;
     switch(inst.op.op) {
     case NOP:
 	case DOP:
+    case TOP:
         break;
     case JMP:
         pc = inst.addr;
@@ -357,7 +357,6 @@ void Machine::execute_inst() {
     case SBC:
         a7 = a & (1 << 7);
         m7 = inst.operand & (1 << 7);
-        old_a = a;
         result = a - inst.operand;
         if(!get_flag(C)) {
             result -= 1;
@@ -387,8 +386,6 @@ void Machine::execute_inst() {
     case INC:
         inst.operand += 1;
         inst.operand &= 0xff;
-		if(inst.addr == 0x0b || inst.addr == 0x0c)
-			cout << (int)inst.operand << endl;
         set_nz(inst.operand);
         set_mem(inst.addr, inst.operand);
         break;
@@ -407,7 +404,6 @@ void Machine::execute_inst() {
         set_mem(inst.addr, inst.operand);
 		a7 = a & (1 << 7);
         m7 = inst.operand & (1 << 7);
-        old_a = a;
         result = a - inst.operand;
         if(!get_flag(C)) {
             result -= 1;
@@ -577,6 +573,11 @@ void Machine::execute_inst() {
         r7 = a & (1 << 7);
         set_flag(V, !((a7 != m7) || ((a7 == m7) && (m7 == r7))));
 		break;
+    case XAA:
+    case AXA:
+    case XAS:
+    case LAR:
+        break;
     default:
         cout << "Unsupported opcode! " << int(inst.opcode) << endl;
         cout << inst.op.op << endl;
@@ -584,11 +585,6 @@ void Machine::execute_inst() {
         throw new runtime_error("Unsupported opcode");
         break;
     }
-	if(inst.op.op == LDA && inst.operand == 0xf3) {
-		testeroo = cycle_count;
-	} else if(inst.op.op == JMP && inst.addr == 0x705) {
-		cout << (cycle_count - testeroo) << endl;
-	}
     cycle_count += inst.op.cycles + inst.extra_cycles;
 }
 
@@ -596,7 +592,7 @@ void Machine::run() {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');
-    debug = true;
+    //debug = true;
     while(1) {
         try {
             if(debug)
@@ -619,7 +615,7 @@ void Machine::run() {
 				default:
 					cout << "test done: " << endl;
 					cout << (char*)(rom->prg_ram + 4) << endl;
-					cin.get();
+					//cin.get();
 					break;
 				}
 			}

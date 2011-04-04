@@ -175,6 +175,7 @@ void PPU::new_scanline() {
     next_taddr = -1;
     //sprites
     cur_sprs.clear();
+    //cout << (int)(((Sprite*)obj_mem) + 3)->y << endl;
     for(int i = 0; i < 64; i++) {
         Sprite *s = ((Sprite*)obj_mem)+i;
 		if(s->y <= (sl-1) && ((sl-1) < s->y+8 || ((pctrl & (1<<5)) && (sl-1) < s->y+16))) {
