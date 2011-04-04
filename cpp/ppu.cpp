@@ -326,7 +326,7 @@ void PPU::render_pixels(byte x, byte y, byte num) {
 
 void PPU::draw_frame() {
     sl = -2;
-    sf::Sprite x(screen);
+	sf::Sprite x(screen);
     wind->Draw(x);
     //process events
     sf::Event event;
@@ -353,12 +353,14 @@ void PPU::draw_frame() {
 					}
 				} else if(event.Key.Code == sf::Key::D) {
 					mach->debug = false;
+				} else if(event.Key.Code == sf::Key::Q) {
+					//ZOOOM
+					wind->SetSize(1024, 960);
 				}
 			}
 		}
 	} while (paused);
     wind->Display();
-    //cout << "frame! " << (1/wind->GetFrameTime()) << endl;
 }
 
 void PPU::run() {

@@ -62,6 +62,7 @@ class Machine {
 public:
     Machine(Rom *rom);
 	bool debug;
+	int testeroo;
 	   
 	int pc;
     byte a, s, p;

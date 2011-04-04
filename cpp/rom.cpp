@@ -8,8 +8,9 @@
 
 using namespace std;
 
-Rom::Rom(istream& f) {
+Rom::Rom(istream& f, string fname) {
     byte header[16];
+	this->fname = fname;
     f.read((char*)header, 16);
     if (strncmp((char*)header, "NES\x1a", 4) == 0) {
         cout << "header constant OK!" << endl;
@@ -72,10 +73,11 @@ Rom::Rom(istream& f) {
     cout << "prg size " << int(prg_size) << endl;
     cout << "chr size " << int(chr_size) << endl;
     if(!prg_ram_size) {
-        ifstream test("test.sav");
+        ifstream test(fname + ".sav");
         prg_ram = new byte[8192];
         memset(prg_ram, 0xff, 0x2000);
-        //test.read((char*)prg_ram, 0x2000);
+		if(test.is_open())
+			test.read((char*)prg_ram, 0x2000);
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
         memset(prg_ram, 0xff, 0x2000 * prg_ram_size);

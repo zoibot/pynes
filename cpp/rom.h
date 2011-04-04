@@ -19,8 +19,9 @@ struct Rom {
     byte* chr_banks;
     byte* prg_ram;
 	NTMirroring mirror;
+	string fname;
 
-    Rom(istream& f);
+    Rom(istream& f, string fname);
 };
 
 #endif //ROM_H

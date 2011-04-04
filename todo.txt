@@ -2,8 +2,10 @@
 *saving really
 *savestates
 *more debug features (menu??)
+*automated testing
 
 #known bugs
 -timing is off for vblank
 -sp hit 0 borked
--slalom scrolling
+-slalom scrolling- scroll timing issue
+-instr_test doesn't end, probably APU issue

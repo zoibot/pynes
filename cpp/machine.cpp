@@ -48,8 +48,10 @@ void Machine::reset() {
 }
 
 void Machine::save() {
-    ofstream save("test.sav");
+	cout << " saving to " << (rom->fname + ".sav") << endl;
+	ofstream save(rom->fname + ".sav");
     save.write((char*)rom->prg_ram, 0x2000);
+	save.close();
 }
 
 byte Machine::get_mem(word addr) {
@@ -385,6 +387,8 @@ void Machine::execute_inst() {
     case INC:
         inst.operand += 1;
         inst.operand &= 0xff;
+		if(inst.addr == 0x0b || inst.addr == 0x0c)
+			cout << (int)inst.operand << endl;
         set_nz(inst.operand);
         set_mem(inst.addr, inst.operand);
         break;
@@ -580,6 +584,11 @@ void Machine::execute_inst() {
         throw new runtime_error("Unsupported opcode");
         break;
     }
+	if(inst.op.op == LDA && inst.operand == 0xf3) {
+		testeroo = cycle_count;
+	} else if(inst.op.op == JMP && inst.addr == 0x705) {
+		cout << (cycle_count - testeroo) << endl;
+	}
     cycle_count += inst.op.cycles + inst.extra_cycles;
 }
 
@@ -587,7 +596,7 @@ void Machine::run() {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');
-    //debug = true;
+    debug = true;
     while(1) {
         try {
             if(debug)
