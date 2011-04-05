@@ -30,6 +30,7 @@ void Machine::nmi(word addr) {
     push(p);
 	set_flag(I, true);
     pc = get_mem(addr) + (get_mem(addr+1)<<8);
+	cycle_count += 7;
 }
 
 void Machine::reset() {
@@ -58,6 +59,10 @@ byte Machine::get_mem(word addr) {
     if(addr < 0x2000) {
         return mem[addr & 0x7ff];
     } else if(addr < 0x4000) {
+		//update ppu before read
+		cycle_count += inst.op.cycles + inst.extra_cycles;
+		ppu->run();
+		cycle_count -= inst.op.cycles + inst.extra_cycles;
         return ppu->read_register((addr - 0x2000)&7);
     } else if(addr < 0x4018) {
         switch(addr) {
@@ -585,6 +590,11 @@ void Machine::execute_inst() {
         throw new runtime_error("Unsupported opcode");
         break;
     }
+	if(inst.op.op == BIT && inst.addr == 0) {
+		cout << "BIT" << (cycle_count - ppu->last_vblank_start) << endl;
+	} else if(inst.op.op == DEC && inst.addr == 0xa) {
+		cout << "DEC" << (cycle_count - ppu->last_vblank_start) << endl;
+	}
     cycle_count += inst.op.cycles + inst.extra_cycles;
 }
 
@@ -592,7 +602,7 @@ void Machine::run() {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');
-    //debug = true;
+    debug = true;
     while(1) {
         try {
             if(debug)
