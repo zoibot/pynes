@@ -5,6 +5,8 @@
 *automated testing
 
 #known bugs
--timing is off for vblank
 -sp hit 0 borked
 -slalom scrolling- scroll timing issue
+-irq handling is completely wrong
+-reads/writes aren't cycle accurate
+-no dummy reads or writes

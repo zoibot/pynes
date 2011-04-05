@@ -33,6 +33,19 @@ void Machine::nmi(word addr) {
 	cycle_count += 7;
 }
 
+void Machine::request_irq() {
+	if(!scheduled_irq)
+		irq_waiting = true;
+}
+
+void Machine::irq() {
+	push2(pc);
+    push(p);
+	set_flag(I, true);
+    pc = get_mem(0xfffe) + (get_mem(0xfffe+1)<<8);
+	cycle_count += 7;
+}
+
 void Machine::reset() {
     cycle_count = 0;
     s = 0xff;
@@ -225,7 +238,7 @@ void Machine::execute_inst() {
     case BRK:
         pc += 1;
         p |= B;
-        nmi(0xfffe); 
+        irq(); 
         break;
     case BCS:
         branch(get_flag(C), inst);
@@ -590,11 +603,7 @@ void Machine::execute_inst() {
         throw new runtime_error("Unsupported opcode");
         break;
     }
-	if(inst.op.op == BIT && inst.addr == 0) {
-		cout << "BIT" << (cycle_count - ppu->last_vblank_start) << endl;
-	} else if(inst.op.op == DEC && inst.addr == 0xa) {
-		cout << "DEC" << (cycle_count - ppu->last_vblank_start) << endl;
-	}
+
     cycle_count += inst.op.cycles + inst.extra_cycles;
 }
 
@@ -602,7 +611,7 @@ void Machine::run() {
     reset();
     ofstream cout("LOG.TXT");
 	cout << uppercase << setfill('0');
-    debug = true;
+    //debug = true;
     while(1) {
         try {
             if(debug)
@@ -613,6 +622,15 @@ void Machine::run() {
             execute_inst();
 			ppu->run();
 			apu->update(inst.op.cycles + inst.extra_cycles);
+			if(irq_waiting && !get_flag(I)) {
+				scheduled_irq = 2;
+				irq_waiting = false;
+			}
+			if(scheduled_irq) {
+				scheduled_irq--;
+				if(!scheduled_irq)
+					irq();
+			}
 			//special handling for blargg tests
 			if(rom->prg_ram[1] == 0xde && rom->prg_ram[2] == 0xb0) {//&& mem[0x6003] == 0x61) {
 				switch(rom->prg_ram[0]) {

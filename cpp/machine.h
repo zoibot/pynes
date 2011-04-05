@@ -27,6 +27,8 @@ const sf::Key::Code keymap[8] = {
 class Machine {
     byte *mem;
     Instruction inst;
+	bool irq_waiting;
+	int scheduled_irq;
     //ppu
     PPU *ppu;
     sf::RenderWindow wind;
@@ -57,6 +59,8 @@ class Machine {
     void push(byte val);
     byte pop();
 
+	void irq();
+
     string dump_regs();
 
 public:
@@ -72,6 +76,7 @@ public:
 
     void reset();
     void nmi(word addr);
+	void request_irq();
     void execute_inst();
     void run();
     void save();

@@ -68,6 +68,7 @@ APU::APU(Machine *mach) {
 	sequencer_status = 0;
 	odd_clock = 0;
 	frame_mode = 0;
+	frame_interrupt = false;
 	frame_irq = false;
 	status = 0;
     sound.SetBuffer(buf);
@@ -119,7 +120,9 @@ void APU::write_register(byte num, byte val) {
         if(val & 0x40) {
 			frame_interrupt = false;
             frame_irq = false;
-        }
+        } else {
+			frame_irq = true;
+		}
         break;
     default:
         cout << "weird APU register " << num << endl;
@@ -159,6 +162,8 @@ void APU::update(int cycles) {
 		clock_sequencer();
 		odd_clock = !odd_clock;
 	}
+	if(frame_interrupt)
+		mach->request_irq();
 }
 
 void APU::clock_sequencer() {
@@ -182,15 +187,13 @@ void APU::clock_sequencer() {
 		case 3:
 			//interrupt
 			if(frame_irq) {
-				status |= 0x40;
-				mach->nmi(0xfffe);
-				//other crap
+				frame_interrupt = true;
+				cout << "IRQ" << endl;
 			}
 		case 1:
 			//clock 1
 			p1.clock_length_counter();
 			p2.clock_length_counter();
-			break;
 			break;
 		}
 		sequencer_status = (sequencer_status + 1) % 4;
