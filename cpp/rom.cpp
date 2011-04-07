@@ -76,8 +76,8 @@ Rom::Rom(istream& f, string fname) {
         ifstream test((fname + ".sav").c_str());
         prg_ram = new byte[8192];
         memset(prg_ram, 0xff, 0x2000);
-		//if(test.is_open())
-		//	test.read((char*)prg_ram, 0x2000);
+		if((flags6 & 2) &&test.is_open())
+			test.read((char*)prg_ram, 0x2000);
     } else {
         prg_ram = new byte[8192 * prg_ram_size];
         memset(prg_ram, 0xff, 0x2000 * prg_ram_size);

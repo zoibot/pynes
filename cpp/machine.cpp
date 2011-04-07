@@ -34,8 +34,12 @@ void Machine::nmi(word addr) {
 }
 
 void Machine::request_irq() {
-	if(!scheduled_irq)
+	if(!scheduled_irq) {
 		irq_waiting = true;
+		if(!get_flag(I)) {
+			scheduled_irq = 1;
+		}
+	}
 }
 
 void Machine::irq() {
@@ -62,6 +66,7 @@ void Machine::reset() {
 }
 
 void Machine::save() {
+	if(!(rom->flags6 & 2)) return;
 	cout << " saving to " << (rom->fname + ".sav") << endl;
 	ofstream save((rom->fname + ".sav").c_str());
     save.write((char*)rom->prg_ram, 0x2000);
@@ -184,7 +189,7 @@ Machine::Machine(Rom *rom) {
 	debug = false;
     //Display
     wind.Create(sf::VideoMode(256, 240), "asdfNES", sf::Style::Close);
-    //wind.SetFramerateLimit(60);// what is the right limit??
+    wind.SetFramerateLimit(60);// what is the right limit??
     //print surface bits
     cout << "Depth Bits: " << wind.GetSettings().DepthBits << endl;
     ppu = new PPU(this, &wind);
@@ -192,6 +197,8 @@ Machine::Machine(Rom *rom) {
     //clock???
     mem = new byte[0x800];
     memset(mem, 0xff, 0x800);
+	irq_waiting = false;
+	scheduled_irq = 0;
 }
 
 void Machine::branch(bool cond, Instruction &inst) {
@@ -234,6 +241,10 @@ void Machine::execute_inst() {
     case RTI:
         p = (pop() | (1<<5)) & (~B);
         pc = pop2();
+		if(get_flag(I))
+			scheduled_irq = 0;
+		else if(irq_waiting)
+			scheduled_irq = 1;
         break;
     case BRK:
         pc += 1;
@@ -620,17 +631,20 @@ void Machine::run() {
             if(debug)
                 cout << inst << dump_regs() << endl; 
             execute_inst();
-			ppu->run();
-			apu->update(inst.op.cycles + inst.extra_cycles);
-			if(irq_waiting && !get_flag(I)) {
+			if(irq_waiting && !get_flag(I) && !scheduled_irq) {
+				cout << " scheduling IRQ " << endl;
 				scheduled_irq = 2;
 				irq_waiting = false;
 			}
 			if(scheduled_irq) {
+				cout << "decrementing schedule " << scheduled_irq << endl;
 				scheduled_irq--;
 				if(!scheduled_irq)
 					irq();
 			}
+			ppu->run();
+			apu->update(inst.op.cycles + inst.extra_cycles);
+
 			//special handling for blargg tests
 			if(rom->prg_ram[1] == 0xde && rom->prg_ram[2] == 0xb0) {//&& mem[0x6003] == 0x61) {
 				switch(rom->prg_ram[0]) {
