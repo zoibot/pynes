@@ -287,7 +287,7 @@ class PPU(object):
             self.oamaddr = val
         elif i == 4:
             self.obj_mem[self.oamaddr] = val
-            #self.update_sprites()
+            self.update_sprites()
             self.oamaddr += 1
             self.oamaddr &= 0xff
         elif i == 5:
@@ -351,6 +351,7 @@ class PPU(object):
             return 0
 
     def render_scanline(self):
+	# need to re-add sprite stuff
         #update horizontal scan
         self.last_sl += 1
         if not self.show_bg:

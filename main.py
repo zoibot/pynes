@@ -2,8 +2,8 @@
 import sys
 import struct
 from array import array
-import cProfile
-#import copy
+# pypy is very affected by profiling
+#import cProfile
 
 #pyglet
 import pyglet
@@ -57,7 +57,7 @@ class Machine(object):
         self.p &= 0x7f ^ (val & N)
     
     def next_byte(self):
-        x = self.get_code_mem(self.pc)#self.rom.prg_rom[self.pc & 0x3fff]#
+        x = self.get_code_mem(self.pc)
         self.pc += 1
         return x
     def next_word(self):
@@ -105,6 +105,7 @@ class Machine(object):
             elif addr == 0x4014:
                 start = val << 8
                 end = start + 0x100
+		# call to ppu.py
                 self.obj_mem = self.mem[start:end]
                 #self.update_sprites()
 
@@ -125,33 +126,12 @@ class Machine(object):
         else:
             return addr - 0x400
     def _vert_mirror(self, addr):
-       #vertical mirroring
+        #vertical mirroring
         return addr & (~0x800)
         if addr < 0x2800:
             return addr
         else:
             return addr - 0x800
-
-    def ppu_get_mem(self, addr):
-        addr &= 0x3fff
-        if addr < 0x2000:
-            return self.rom.chr_rom[addr]
-        elif addr < 0x3000:
-            return self.ppu_mem[self.mirroring(addr)]
-        elif addr < 0x3f00:
-            return self.ppu_get_mem(addr - 0x1000)
-        else:
-            #palette
-            return self.ppu_mem[0x3f00 + (addr & 0x1f)]
-    def ppu_set_mem(self, addr, val):
-        addr &= 0x3fff
-        if addr < 0x3000:
-            self.ppu_mem[self.mirroring(addr)] = val
-        elif addr < 0x3f00:
-            self.ppu_set_mem(addr- 0x1000, val)
-        else: 
-            self.ppu_mem[0x3f00 + (addr & 0x1f)] = val
-
 
     def push2(self, val):
         # val is 16 bit
@@ -160,7 +140,6 @@ class Machine(object):
         self.set_mem(s+1, val & 0xFF)
         self.set_mem(s+2, val >> 8)
     def pop2(self):
-        # val is 16 bit
         self.s += 2
         s = self.s | 0x0100
         return self.get_mem(s-1) + (self.get_mem(s) << 8)
@@ -186,11 +165,9 @@ class Machine(object):
 
     def __init__(self, rom):
         self.rom = rom
-        self.window = pyglet.window.Window()
+        self.window = pyglet.window.Window(width=256, height=240)
         self.surface = pyglet.image.create(256,240)
         self.screen = pyglet.image.create(256,240)
-        print self.screen.get_image_data().format
-        #pygame.display.set_caption('6502! '+sys.argv[1], '6502')
         self.keys = pyglet.window.key.KeyStateHandler()
         self.window.push_handlers(self.keys)
         self.mem = array('B')
@@ -217,6 +194,7 @@ class Machine(object):
             glVertex2f(256,-16)
             glEnd()
 
+# should move to cpu.py
     def run(self, etc):
         if len(sys.argv) == 3:
             while True:
@@ -244,159 +222,10 @@ class Machine(object):
         self.inst.parse_operand(self.inst,self)
         
     def execute(self, inst):
-        def failure(inst):
-            print 'unimplemented instruction: '+inst.op
-            sys.exit(1)
-            #should log this
-        #getattr(self, inst.op, failure)(inst)
-        self.op_dict[inst.op](inst)#, failure)(inst)
+	# this is still a little slow, and doesn't fail well
+        self.op_dict[inst.op](inst)
 
-    def run_ppu_prime(self):
-        bg_enabled = self.pmask & (1 << 3)
-        sprite_enabled = self.pmask & (1 << 4)
-        rendering_enabled = bg_enabled or sprite_enabled
-        cycles = self.cycle_count * 3 - self.ppu_cycles
-        while self.ppu_cycles < self.cycle_count * 3:
-            if self.sl < 0:
-                self.do_vblank(rendering_enabled)
-            elif self.sl < 240:
-                if 341 - self.cyc > cycles:
-                    todo = cycles
-                else:
-                    todo = 341 - self.cyc
-                y = self.sl
-                if rendering_enabled and self.cyc < 256:
-                    self.render_pixels(self.cyc, y, min(todo, 256-self.cyc))
-                self.cyc += todo
-                self.ppu_cycles += todo
-                if self.cyc == 341:
-                    self.cyc = 0
-                    self.sl += 1
-                    if rendering_enabled: self.new_scanline()
-            elif self.sl == 240:
-                if 341 - self.cyc > cycles:
-                    self.cyc += cycles
-                    self.ppu_cycles += cycles
-                else:
-                    self.ppu_cycles += 341 - self.cyc
-                    self.cyc = 0
-                    self.sl += 1
-                    self.pstat |= (1 << 7)
-                    if self.pctrl & (1 << 7):
-                        self.nmi(0xfffa)
-            else:
-                self.ppu_cycles += 341 * 21
-                self.draw_frame()
-
-    def do_vblank(self, rendering_enabled):
-        cycles = self.cycle_count * 3 - self.ppu_cycles
-        if 341 - self.cyc > cycles:
-            self.cyc += cycles
-            self.ppu_cycles += cycles
-        else:
-            self.ppu_cycles += 341 - self.cyc
-            self.cyc = 0
-            self.sl += 1
-            self.pstat &= ~(1 << 7)
-            self.pstat &= ~(1 << 6)
-            if rendering_enabled:
-                self.paddr = self.taddr
-                self.fineX = self.xoff
-
-    def render_pixels(self, x, y, num):
-        if self.pmask & 0x8:
-            cols = self.get_nt_colors(num)
-        try:
-            self.pixels[x:x+num,y] = [colors[color] for color in cols]
-        except:
-            print color
-
-    def new_scanline(self):
-        fineY = (self.paddr & 0x7000) >> 12
-        if fineY == 7:
-            if self.paddr & 0x3ff >= 0x3c0:
-                self.paddr |= 0x800
-            self.paddr += 0x20
-        self.paddr &= ~0x1f
-        self.paddr |= self.taddr & 0x1f
-        self.paddr &= ~(1 << 10) 
-        self.paddr |= self.taddr & (1 << 10)
-        self.paddr &= ~(0x7000)
-        self.paddr |= ((fineY+1) & 0x7) << 12
-        self.fineX = self.xoff
-        self.cur_objs = [s for s in self.objs if self.sl-1 in xrange(s.y, s.y+8)]
-        self.spr_map = [None] * 256
-        for spr in self.cur_objs:
-            for x in xrange(spr.x, spr.x+8):
-                self.spr_map[x] = self.get_sprite_color(spr, x, self.sl)
-
-    def get_nt_colors(self, num):
-        fineY = (self.paddr >> 12) & 7
-        colors = []
-        xoff = self.cyc
-        base_pt_addr = 0x1000 if (self.pctrl & (1 << 4)) else 0
-        self.at_base = (self.nt_addr & (~0xfff)) + 0x3c0
-        self.at = self.ppu_mem[self.at_base + ((self.nt_addr & 0x3ff)>>4)]
-        while num:
-            self.nt_addr = 0x2000 | (self.paddr & 0xfff)
-            self.nt_val = self.ppu_mem[self.nt_addr]
-            self.pt_addr = (self.nt_val << 4) + base_pt_addr
-            #get new at val
-            nt_off = (self.nt_addr & 0x3ff)
-            row = (nt_off >> 6) & 1
-            col = (nt_off & 0x2) >> 1
-            #have a mapping here??
-            self.at_val = self.at >> ((0 if row else 4) + (0 if col else 2))
-            self.at_val &= 2
-            self.at_val <<= 2
-            todo = min(num, 8-self.fineX)
-            pat = self.patterns[self.pt_addr, fineY]
-            color_is = pat[self.fineX:self.fineX+todo]
-            self.fineX = (self.fineX + todo) & 7
-            num -= todo
-            palette_base = 0x3f00 + self.at_val
-            colors += [self.ppu_mem[palette_base+self.mux_color(ix, self.spr_map[xoff+i])] for i, ix in enumerate(color_is)]
-            xoff += todo
-            if not self.fineX:
-                if self.paddr & 0x1f == 0x1f:
-                    self.paddr |= 0x400
-                    self.paddr -= 0x1f
-                else:
-                    self.paddr += 1
-        return colors
-
-    def mux_color(self, nt_color, spr):
-        if nt_color and not spr:
-            return nt_color
-        elif not nt_color and not spr:
-            return 0
-        else:
-            (spr_color, spr_bg, spr_num) = spr
-            if not spr_bg and spr_num == 0:
-                self.pstat |= 1 << 6 #spr 0 hit
-            return spr_color if spr_color and not (spr_bg and nt_color) else nt_color
-
-
-    def get_sprite_color(self, sprite, x, y):
-        palette = sprite.attrs & 3
-        xoff = x - sprite.x
-        yoff = y - sprite.y - 1
-        base_pt_addr = 0x1000 if (self.pctrl & (1 << 3)) else 0
-        pt_addr = (sprite.tile * 0x10) + base_pt_addr
-        color_i = self.patterns[pt_addr, yoff][xoff]
-        if not color_i:
-            return (None, None, None)
-        color_i |= palette << 2
-        color_i |= 1 << 4
-        return color_i, sprite.attrs & (1 << 5), sprite.index
-
-    def update_sprites(self):
-        for spr in self.objs:
-            index = spr.index * 4
-            spr.update(self.obj_mem[index:index+4])
- 
     def reset(self):
-    #TODO what is the deal with megaman? loading probs
         self.s -= 3
         self.s &= 0xff
         self.mem = [0xff] * (0x800)
@@ -663,6 +492,7 @@ class Machine(object):
         self.a = self.x
         self.set_nz(self.a)
  
+# should move to instruction.py
 class Instruction(object):
 #TODO brk, some illegals
     '''Class for parsing instructions'''
@@ -980,7 +810,6 @@ class Instruction(object):
             #    self.illegal = True
         except:
             print 'unsupported opcode: ' + hex2(op)
-            #sys.exit(1)
         self.addr_len = 0
 
     def __repr__(self):
@@ -1023,6 +852,7 @@ class Instruction(object):
             rep += ' '
         return rep
 
+# should move to rom.py
 class Rom(object):
     '''class for reading in iNES files'''
     def __init__(self, f):
@@ -1054,6 +884,7 @@ class Rom(object):
         self.prg_ram = array('B')
         self.prg_ram.fromlist([0xff] * (8192 * 1 if not self.prg_ram_size else self.prg_ram_size))
 
+# should move to tests
 def test(rom, mach):
     ppu = mach.ppu
     for i in range(0x4000):
@@ -1070,5 +901,5 @@ mach = Machine(rom)
 #test(rom, mach)
 mach.reset()
 pyglet.clock.schedule(mach.run)
-cProfile.run('pyglet.app.run()' , 'prof')
-#pyglet.app.run()
+#cProfile.run('pyglet.app.run()' , 'prof')
+pyglet.app.run()
