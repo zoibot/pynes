@@ -5,8 +5,9 @@ from array import array
 import cProfile
 #import copy
 
-#pygame
-import pygame
+#pyglet
+import pyglet
+from pyglet.gl import *
 
 #emu imports
 import ppu
@@ -52,10 +53,11 @@ class Machine(object):
         return self.p & flag
     def set_nz(self, val):
         self.set_flag(Z, val == 0)
-        self.set_flag(N, val & (1 << 7))
+        self.p |= val & N
+        self.p &= 0x7f ^ (val & N)
     
     def next_byte(self):
-        x = self.get_code_mem(self.pc)#self.rom.prg_rom[self.pc & 0x3fff]
+        x = self.get_code_mem(self.pc)#self.rom.prg_rom[self.pc & 0x3fff]#
         self.pc += 1
         return x
     def next_word(self):
@@ -96,7 +98,7 @@ class Machine(object):
         elif addr < 0x4018:
             if addr == 0x4016:
                 if val & 1:
-                    keys = pygame.key.get_pressed()
+                    keys = self.keys
                     for keycode in keymap:
                         self.keys[keymap[keycode]] = 1 if keys[keycode] else 0
                 self.read_input_state = 0
@@ -184,20 +186,38 @@ class Machine(object):
 
     def __init__(self, rom):
         self.rom = rom
-        pygame.display.init()
-        self.surface = pygame.display.set_mode((256,240), pygame.DOUBLEBUF)
-        pygame.display.set_caption('6502! '+sys.argv[1], '6502')
-        print 'surface bit ' + str(self.surface.get_bitsize())
-        self.pixels = pygame.surfarray.pixels2d(self.surface)
-        self.clock = pygame.time.Clock()
+        self.window = pyglet.window.Window()
+        self.surface = pyglet.image.create(256,240)
+        self.screen = pyglet.image.create(256,240)
+        print self.screen.get_image_data().format
+        #pygame.display.set_caption('6502! '+sys.argv[1], '6502')
+        self.keys = pyglet.window.key.KeyStateHandler()
+        self.window.push_handlers(self.keys)
         self.mem = array('B')
         self.mem.fromlist([0xff] * (0x800))
         self.inst = Instruction()
+        self.op_dict = dict((m, getattr(self, m)) for m in dir(self) if '__' not in m)
         #ppu stuff
         self.ppu = ppu.PPU(self)
+        @self.window.event
+        def on_mouse_motion(x, y, dx, dy):
+            self.window.invalid = False
+        @self.window.event
+        def on_draw():
+            self.window.clear()
+            #TODO should be display list
+            glBegin(GL_QUADS)
+            glTexCoord2f(0,1)
+            glVertex2f(0,-16)
+            glTexCoord2f(0,0)
+            glVertex2f(0,240)
+            glTexCoord2f(1,0)
+            glVertex2f(256,240)
+            glTexCoord2f(1,1)
+            glVertex2f(256,-16)
+            glEnd()
 
-    def run(self):
-        self.reset()
+    def run(self, etc):
         if len(sys.argv) == 3:
             while True:
                 print hex4(self.pc),
@@ -208,13 +228,15 @@ class Machine(object):
                 print self.dump_regs()
                 self.execute(self.inst)
                 self.cycle_count += self.inst.cycles
-                self.ppu.run(self.inst.cycles * 3)
+                if self.ppu.run(self.inst.cycles * 3):
+                    break
         else:
             while True:
                 self.next_inst()
                 self.execute(self.inst)
                 self.cycle_count += self.inst.cycles
-                self.ppu.run(self.inst.cycles * 3)
+                if self.ppu.run(self.inst.cycles * 3):
+                    break
 
     def next_inst(self):
         self.prev_pc = self.pc
@@ -222,13 +244,12 @@ class Machine(object):
         self.inst.parse_operand(self.inst,self)
         
     def execute(self, inst):
-        try:
-            getattr(self, inst.op)(inst)
-        except AttributeError, e:
+        def failure(inst):
             print 'unimplemented instruction: '+inst.op
-            print e
             sys.exit(1)
             #should log this
+        #getattr(self, inst.op, failure)(inst)
+        self.op_dict[inst.op](inst)#, failure)(inst)
 
     def run_ppu_prime(self):
         bg_enabled = self.pmask & (1 << 3)
@@ -251,8 +272,7 @@ class Machine(object):
                 if self.cyc == 341:
                     self.cyc = 0
                     self.sl += 1
-                    if rendering_enabled:
-                        self.new_scanline()
+                    if rendering_enabled: self.new_scanline()
             elif self.sl == 240:
                 if 341 - self.cyc > cycles:
                     self.cyc += cycles
@@ -587,13 +607,13 @@ class Machine(object):
     def ror_a(self, inst):
         new_c = self.a & 1
         self.a >>= 1
-        self.a |= (1 << 7) if self.get_flag(C) else 0
+        self.a |= ((self.p & C) << 7)
         self.set_flag(C, new_c)
         self.set_nz(self.a)
     def ror(self, inst):
         new_c = inst.operand & 1
         inst.operand >>= 1
-        inst.operand |= (1 << 7) if self.get_flag(C) else 0
+        inst.operand |= ((self.p & C) << 7)
         self.set_flag(C, new_c)
         self.set_mem(inst.addr, inst.operand)
         self.set_nz(inst.operand)
@@ -609,7 +629,7 @@ class Machine(object):
         inst.operand <<= 1
         inst.operand |= 1 if self.get_flag(C) else 0
         inst.operand &= 0xff
-        self.set_flag('C', new_c)
+        self.set_flag(C, new_c)
         self.set_mem(inst.addr, inst.operand)
         self.set_nz(inst.operand)
     def slo(self, inst):
@@ -960,7 +980,7 @@ class Instruction(object):
             #    self.illegal = True
         except:
             print 'unsupported opcode: ' + hex2(op)
-            sys.exit(1)
+            #sys.exit(1)
         self.addr_len = 0
 
     def __repr__(self):
@@ -1047,5 +1067,8 @@ filename = sys.argv[1]
 
 rom = Rom(open(filename, 'rb'))
 mach = Machine(rom)
-test(rom, mach)
-cProfile.run('mach.run()', 'prof')
+#test(rom, mach)
+mach.reset()
+pyglet.clock.schedule(mach.run)
+cProfile.run('pyglet.app.run()' , 'prof')
+#pyglet.app.run()

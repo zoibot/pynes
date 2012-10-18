@@ -1,4 +1,8 @@
 from util import *
+import pyglet
+from pyglet.gl import *
+import struct
+from ctypes import *
 
 class Sprite(object):
     def __init__(self, index):
@@ -91,6 +95,8 @@ class PPU(object):
     platch = False
     obj_mem = None
     obj_addr = 0
+    pixels = array('I', [0] * (256 * 240))#(c_uint * (256 * 240))()#
+    pixelcbuf = cast((c_uint * (256 * 240))(), c_void_p)
 
     #nametables
     ntables = None
@@ -120,6 +126,8 @@ class PPU(object):
     stored_ynt = 0
     stored_yt = 0
     stored_fy = 0
+    vaddr = 0
+    oamaddr = 0
 
     #ppu control register
     do_nmi = False
@@ -148,6 +156,15 @@ class PPU(object):
         self.ppu_mem.fromlist([0xff] * (0x4000))
         self.obj_mem = array('B')
         self.obj_mem.fromlist([0xff] * (0x100))
+        
+        glEnable(GL_TEXTURE_2D)
+	texture = 0;
+        glGenTextures(1, (GLuint * 1)(*[texture]))
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE );
+        glBindTexture(GL_TEXTURE_2D, texture)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, array('B', [0] * (256 * 256 * 4)).tostring())
 
         self.patterns = PatternTables(mach)
         self.patterns.update_all()
@@ -346,6 +363,7 @@ class PPU(object):
         g_a = cur_nt.get_attrib
         pat_get = self.patterns.get
         bg_pat_addr = self.bg_pat_addr
+        pixels = self.pixels
         x = self.current_fx
         for tile in xrange(32):
             t = pat_get(bg_pat_addr + 0x10*g_b(xt, self.current_yt), self.current_fy)
@@ -354,7 +372,8 @@ class PPU(object):
                 col = t[i]
                 if col:
                     col += att
-                self.nes.pixels[x+i, self.last_sl] = self.palette.bg_palette[col]
+                colval = self.palette.bg_palette[col]
+                pixels[x+i + self.last_sl * 256] = colval
             if xt == 32:
                 xt = 0
                 self.current_xnt = (self.current_xnt + 1)%2
@@ -398,14 +417,11 @@ class PPU(object):
     def draw_frame(self):
         self.sl = -1
         self.last_sl = 0
-        self.nes.surface.unlock()
-        pygame.display.flip()
-        self.nes.surface.fill(0x0)
-        self.nes.surface.lock()
-        pygame.event.pump()
-        self.nes.clock.tick()
+        #memmove(self.pixelcbuf, , 256 * 240 * 4)
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 240, GL_BGRA, GL_UNSIGNED_BYTE, self.pixels.buffer_info()[0])#self.pixelcbuf)
+        #self.nes.pixels = array('I', [0] * (256 * 240))
         print 'frame ', self.nes.frame_count
-        print self.nes.clock.get_fps()
+        print pyglet.clock.get_fps()
         self.nes.frame_count += 1
 
     def catchup(self):
@@ -414,9 +430,13 @@ class PPU(object):
 
     def run(self, cycles):
         #should do sprite 0 hit???
+        rv = False
         self.cyc += cycles
         while self.cyc > 341:
             self.cyc -= 341
             self.end_scanline()
+            if self.sl == 0:
+                rv = True
+        return rv
 
 

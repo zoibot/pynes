@@ -1,5 +1,5 @@
 from array import array
-import pygame
+from pyglet.window import key
 
 def hex2(i):
     if i > 0xff:
@@ -77,11 +77,11 @@ colors.fromlist([
 0x000000
 ])
 
-keymap = {pygame.K_LEFT: 6,
-    pygame.K_RIGHT: 7,
-    pygame.K_UP: 4,
-    pygame.K_DOWN: 5,
-    pygame.K_x: 1,
-    pygame.K_z: 0,
-    pygame.K_RETURN: 3,
-    pygame.K_s: 2}
+keymap = {key.LEFT: 6,
+    key.RIGHT: 7,
+    key.UP: 4,
+    key.DOWN: 5,
+    key.X: 1,
+    key.Z: 0,
+    key.RETURN: 3,
+    key.S: 2}
