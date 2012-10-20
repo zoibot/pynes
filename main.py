@@ -871,10 +871,12 @@ class Rom(object):
             self.trainer = f.read(512)
         else:
             self.trainer = None
+        self.mapper = (self.flags7 & 0xf0) | ((self.flags6 & 0xf0) >> 4)
+        if self.mapper != 0:
+            print 'lol no '+str(self.mapper)
+            sys.exit(1)
         self.prg_rom = array('B')
         self.prg_rom.fromfile(f, 16384 * self.prg_size)
-        print self.prg_size
-        print hex4(len(self.prg_rom))
         self.chr_ram = (self.chr_size == 0)
         self.chr_rom = array('B')
         if self.chr_ram:

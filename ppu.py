@@ -287,7 +287,7 @@ class PPU(object):
             self.oamaddr = val
         elif i == 4:
             self.obj_mem[self.oamaddr] = val
-            self.update_sprites()
+            #self.update_sprites()
             self.oamaddr += 1
             self.oamaddr &= 0xff
         elif i == 5:
@@ -374,7 +374,7 @@ class PPU(object):
                 if col:
                     col += att
                 colval = self.palette.bg_palette[col]
-                pixels[x+i + self.last_sl * 256] = colval
+                pixels[((x+i)&0xff) + self.last_sl * 256] = colval
             if xt == 32:
                 xt = 0
                 self.current_xnt = (self.current_xnt + 1)%2
