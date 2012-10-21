@@ -350,9 +350,102 @@ class PPU(object):
         else:
             return 0
 
+    def begin_scanline(self):
+        self.last_sl += 1
+        self.current_fx = self.stored_fx
+        self.current_xt = self.stored_xt
+    
+    def do_vblank(self, rendering_enaled):
+        cycles = self.nes.cycle_count * 3 - self.cycle_count
+        if 341 - self.cyc > cycles:
+            self.cyc += cycles
+            self.cycle_count += cycles
+        else:
+            self.cycle_count ++ 341 - self.cyc
+            self.cyc = 0
+            self.sl += 1
+            if rendering_enabled:
+                self.current_fx = self.stored_fx
+        
+
+    def run(self):
+        rendering_enabled = self.show_bg || self.show_spr
+        while self.cycle_count < self.nes.cycles_count * 3:
+            cycles = self.nes.cycle_count * 3 - self.cycle_count
+            if self.sl == -2:
+                self.do_vblank(rendering_enabled)
+            elif self.sl == -1:
+                if self.cyc == 0:
+                    self.pstat &= ~(7 << 5)
+                    # store vbl off?
+                    self.cycle_count += 304
+                    self.cyc += 304
+                elif self.cyc == 304:
+                    if self.show_bg:
+                        self.vaddr = self.taddr
+                    self.cycle_count += 36
+                    self.cyc += 36
+                elif self.cyc == 340:
+                    if self.show_bg and self.odd_frame:
+                        self.cycle_count -= 1
+                    self.odd_frame = not self.odd_frame
+                    self.cycle_count += 1
+                    self.cyc += 1
+                elif self.cyc == 341:
+                    if self.show_bg:
+                        self.prefetch_bytes(320, 21)
+                    self.cyc = 0
+                    self.sl += 1
+                    if self.show_bg:
+                        self.begin_scanline()
+            elif self.sl < 240:
+                if 341 - self.cyc > cycles:
+                    todo = cycles
+                else:
+                    todo = 341 - self.cyc
+                y = sl
+                if self.show_bg:
+                    prefetch_bytes(cyc, todo)
+                    if self.cyc < 256:
+                        self.render_pixels(self.cyc, y, min(todo, 256-self.cyc))
+                self.cyc += todo
+                self.cycle_count += todo
+                if self.cyc == 341:
+                    self.cyc = 0
+                    self.sl += 1
+                    if self.show_bg:
+                        self.begin_scanline()
+            elif self.sl == 240:
+                if 341 - self.cyc > cycles:
+                    self.cyc += cycles
+                    self.cycle_count += cycles
+                else:
+                    self.cycle_count += 341 - self.cyc
+                    self.cyc = 0
+                    self.sl += 1
+                    self.pstat |= (1 << 7)
+                    # save last nmi?
+                    if self.pctrl & (1 << 7):
+                        self.nes.request_nmi()
+                        self.nmi_occurred = true
+                    else:
+                        self.nmi_occurred = false
+            else:
+                self.cycle_count += 341 * 18
+                self.draw_frame()
+
+    def render_pixels():
+            t = pat_get(self.bg_pat_addr + 0x10*self.get_byte(xt, self.current_yt), self.current_fy)
+            att = self.get_attrib(xt, self.current_yt)
+            todo = min(cycles, 8)
+            for i in xrange(todo):
+                col = t[i]
+            
+    # OLD SYSTEM
+
     def render_scanline(self):
-	# need to re-add sprite stuff
-        #update horizontal scan
+	    # need to re-add sprite stuff
+        # update horizontal scan
         self.last_sl += 1
         if not self.show_bg:
             return
@@ -416,11 +509,8 @@ class PPU(object):
         self.sl += 1
 
     def draw_frame(self):
-        self.sl = -1
-        self.last_sl = 0
-        #memmove(self.pixelcbuf, , 256 * 240 * 4)
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 240, GL_BGRA, GL_UNSIGNED_BYTE, self.pixels.buffer_info()[0])#self.pixelcbuf)
-        #self.nes.pixels = array('I', [0] * (256 * 240))
+        self.sl = -2
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 240, GL_BGRA, GL_UNSIGNED_BYTE, self.pixels.buffer_info()[0])
         print 'frame ', self.nes.frame_count
         print pyglet.clock.get_fps()
         self.nes.frame_count += 1
